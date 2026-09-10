@@ -1,16 +1,32 @@
-# Inventory Manager v0.3.0
+# Inventory Manager v0.6.1
 
 Self-hosted multi-account stock and sales manager designed for barcode-scanner Android devices, tablets and desktop browsers.
 
 ## Security model
 
-Inventory Manager is a multi-account data application. From v0.3.0, normal user authentication is delegated to **Authentik using OpenID Connect (OIDC)**. Inventory Manager does not create or store Authentik passwords. Authentik handles sign-in, password reset/recovery, MFA, account disabling and passkeys/WebAuthn when enabled there.
-
-The browser's main Inventory Manager page is not sent away during normal sign-in. The **Continue with Authentik** button opens Authentik in a small popup window. The OIDC callback completes inside that popup, then the popup closes and the original Inventory Manager page resumes. If a browser blocks popups, a normal same-tab redirect is used as a compatibility fallback.
+Inventory Manager is a multi-account data application. Normal user authentication is delegated to **Authentik using OpenID Connect (OIDC)** when enabled. Inventory Manager does not create or store Authentik passwords. Authentik handles sign-in, password reset/recovery, MFA, account disabling and passkeys/WebAuthn when enabled there.
 
 Each local account retains its own inventory database, photos and backups. Authenticated identities are permanently mapped with the OIDC `sub` claim; email is profile information only and is not the permanent identity key. Tenant selection happens on the server before database paths are resolved, so frontend filtering cannot grant access to another account's inventory.
 
-### Authentik setup
+## Install
+
+```bash
+git clone https://github.com/adamrfreeman644/stock-take.git
+cd stock-take
+cp .env.example .env
+# Configure Authentik/OIDC and other deployment values.
+docker compose up -d --build
+```
+
+Open `http://SERVER-IP:1975` on a trusted LAN or your HTTPS reverse-proxy URL.
+
+Health check:
+
+```text
+http://SERVER-IP:1975/health
+```
+
+## Authentik setup
 
 Create an OAuth2/OpenID Provider and Application in Authentik for Inventory Manager. Use Authorization Code flow and a confidential client. Set the redirect URI exactly to the externally reachable callback, for example:
 
@@ -18,78 +34,100 @@ Create an OAuth2/OpenID Provider and Application in Authentik for Inventory Mana
 https://inventory.example.com/auth/callback
 ```
 
-Copy `.env.example` to your deployment environment and set:
+Copy `.env.example` to `.env` and set the OIDC values. For HTTPS deployments set `COOKIE_SECURE=true`.
 
-```text
-AUTH_ENABLED=true
-OIDC_ISSUER=https://auth.example.com/application/o/inventory-manager
-OIDC_CLIENT_ID=inventory-manager
-OIDC_CLIENT_SECRET=<secret from Authentik>
-OIDC_REDIRECT_URI=https://inventory.example.com/auth/callback
-OIDC_POST_LOGOUT_REDIRECT_URI=https://inventory.example.com/login
-OIDC_ACCOUNT_URL=https://auth.example.com/if/user/
-COOKIE_SECURE=true
-```
-
-Do not put the client secret in Git. Use the host `.env`, Docker secrets, or your existing secure container configuration. `OIDC_ISSUER` is the issuer shown by the Authentik provider; discovery is loaded from its standard `.well-known/openid-configuration` endpoint.
-
-### First login and existing accounts
-
-This is a non-destructive migration. Existing account rows, inventory databases, photos, backups and updater data are kept. On the first successful Authentik login, Inventory Manager first looks for the immutable OIDC `sub`. If it has not been linked yet, an existing local account with the same email can be linked once. After that, `sub` is authoritative even if the email changes.
-
-If `OIDC_AUTO_PROVISION=true`, a previously unknown Authentik identity receives a new isolated local Inventory Manager tenant. No second password is requested. Set `OIDC_AUTO_PROVISION=false` if only pre-linked identities should be admitted.
-
-Legacy password hashes are retained only as rollback/migration data for existing installations. Active v0.3.0 OIDC sign-in does not verify or create local passwords.
-
-### Password reset, recovery and logout
-
-Use **Password & account security** in the Owner Account page for password changes, reset, recovery, MFA and passkeys; it opens the configured Authentik account page. Inventory Manager never displays or recovers an existing password.
-
-**Log out** clears the local application session and uses the provider's OIDC end-session endpoint when Authentik advertises one, then returns to the configured post-logout page.
-
-### Failure behaviour and troubleshooting
-
-When `AUTH_ENABLED=true`, a missing/invalid OIDC configuration **fails closed**: protected inventory routes return a useful configuration error instead of silently disabling authentication. `/health` remains suitable for container monitoring and does not disclose credentials, tokens or user data.
-
-Check `/auth/status` for non-secret integration state. The Owner Account page shows provider, connected/configuration-error state, issuer hostname, signed-in user and integration version. It never displays client secrets or OIDC tokens.
-
-For HTTPS deployments set `COOKIE_SECURE=true`. If sign-in opens but does not finish, first verify the exact callback URI, issuer URL, reverse-proxy HTTPS headers and browser popup policy.
-
-## Install
-
-```bash
-git clone https://github.com/adamrfreeman644/raes-bits-and-bobbins-stock.git
-cd raes-bits-and-bobbins-stock
-cp .env.example .env
-# Configure Authentik/OIDC and other deployment values.
-docker compose up -d --build
-```
-
-Open `http://SERVER-IP:1975` on a trusted LAN or your HTTPS reverse-proxy URL. Health check: `http://SERVER-IP:1975/health`.
+Do not put the client secret in Git.
 
 ## Persistent data
 
 - `./data/` — platform database plus isolated account databases
 - `./photos/` — isolated account photo libraries and preserved crop originals
-- `./backups/` — automatic, manual, updater and pre-restore database backups
-- `./updater-state/` — updater status and log files
+- `./backups/` — automatic, manual and pre-restore database backups
 
 These mounts are separate from the application image, so rebuilding or updating the container does not replace inventory data.
 
+## Shared updater
+
+From v0.6.1, Inventory Manager **does not run its own `inventory-updater` container**.
+
+Application updates are handled by the single **AD53 Shared App Updater** running on the Docker host.
+
+The Inventory Manager container reaches it at:
+
+```text
+http://host.docker.internal:8093/apps/inventory-manager
+```
+
+This is controlled by:
+
+```dotenv
+SHARED_UPDATER_URL=http://host.docker.internal:8093/apps/inventory-manager
+```
+
+The in-app Updates page now reads update status from the shared updater and sends install requests to it. The Inventory Manager container itself does not need `/var/run/docker.sock`.
+
+The shared updater:
+
+1. Checks this repository's `VERSION` file.
+2. Backs up the managed application source before updating.
+3. Downloads the latest source from GitHub.
+4. Runs preflight validation.
+5. Rebuilds only the `inventory-manager` service.
+6. Checks `/health` and confirms the running version.
+7. Automatically restores the previous source/build if validation fails.
+
+The old `updater.sh` remains in repository history only for older deployments. New deployments should not run the old `inventory-updater` service.
+
+## Adding Inventory Manager to AD53 Shared App Updater
+
+The shared updater is maintained with Immich Upload Gateway and its example registry already contains an `inventory-manager` entry.
+
+The updater host must mount this project directory as:
+
+```text
+/apps/inventory-manager
+```
+
+Typical Unraid host path:
+
+```text
+/mnt/user/appdata/stock-take
+```
+
+After changing the shared updater registry/configuration, recreate the updater container and confirm:
+
+```bash
+curl http://127.0.0.1:8093/apps/inventory-manager/status
+```
+
 ## Existing inventory features
 
-The release preserves parent products with unique physical-item barcodes, quantity tracking, PayPal POS CSV import/export, dashboards, permanent sales history, events/pop-up shops, activity/undo, barcode search, archive/restore, automatic/manual backups, photo management, Photo Shoot workflow and existing inventory/update behaviour.
+The release preserves parent products with unique physical-item barcodes, quantity tracking, PayPal POS CSV import/export, dashboards, permanent sales history, events/pop-up shops, activity/undo, barcode search, archive/restore, automatic/manual backups, photo management, Photo Shoot workflow and existing inventory behaviour.
 
 ## Updating
 
-The updater still checks GitHub's `VERSION` file but does not silently install releases. Installation remains a deliberate action in the web interface, and updater backups remain in place. Authentication is applied around the application rather than replacing the updater implementation.
+Open the application's Updates page and press **Check Again** or **Install Update** as normal. Those controls now communicate with the central AD53 Shared App Updater.
 
-### One-time v0.3.0 upgrade steps
+If the shared updater cannot be reached, the Updates page reports that the updater is unavailable rather than writing request files to a local sidecar.
 
-1. Back up the existing appdata directory/database as normal.
-2. Create the Inventory Manager Provider/Application in Authentik and register the exact callback URI.
-3. Add the OIDC environment variables without committing secrets.
-4. Set `COOKIE_SECURE=true` when the public application URL is HTTPS.
-5. Upgrade/rebuild Inventory Manager.
-6. Sign in through the popup with the Authentik identity whose email matches the existing owner account for the one-time link.
-7. Confirm the Owner Account authentication status is **Connected** and verify existing stock/photos before removing any external rollback backup.
+## Troubleshooting updates
+
+Check the shared updater directly:
+
+```bash
+curl http://127.0.0.1:8093/apps/inventory-manager/status
+```
+
+Check Inventory Manager health:
+
+```bash
+curl http://127.0.0.1:1975/health
+```
+
+Check the central updater logs:
+
+```bash
+docker logs ad53-shared-updater
+```
+
+There should no longer be an `inventory-updater` container in a current deployment.
