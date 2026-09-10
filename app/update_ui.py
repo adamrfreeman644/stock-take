@@ -1,7 +1,3 @@
-import json
-import os
-import urllib.error
-import urllib.request
 from datetime import datetime
 
 from flask import flash, jsonify, redirect, render_template, request, url_for
@@ -14,6 +10,20 @@ def version_tuple(value):
         return (0,)
 
 
+def read_text(path, default=''):
+    try:
+        return path.read_text(errors='replace').strip()
+    except OSError:
+        return default
+
+
+def tail(path, limit=80):
+    try:
+        return '\n'.join(path.read_text(errors='replace').splitlines()[-limit:])
+    except OSError:
+        return ''
+
+
 def friendly_status(raw):
     raw = (raw or '').strip().lower()
     if raw in ('running', 'starting'):
@@ -22,7 +32,7 @@ def friendly_status(raw):
         return 'Waiting to start', 'working'
     if raw == 'checking':
         return 'Checking for updates', 'working'
-    if raw in ('success', 'complete'):
+    if raw == 'complete':
         return 'Update finished', 'good'
     if raw.startswith('failed'):
         return 'Update needs attention', 'bad'
@@ -30,83 +40,65 @@ def friendly_status(raw):
 
 
 def configure(app, updater_dir, current_version):
-    base = os.environ.get('SHARED_UPDATER_URL', 'http://host.docker.internal:8093/apps/inventory-manager').rstrip('/')
+    def latest_version():
+        return read_text(updater_dir / 'latest_version', '') or None
 
-    def shared_request(path, method='GET'):
-        req = urllib.request.Request(base + path, method=method, headers={'User-Agent': 'inventory-manager'})
-        with urllib.request.urlopen(req, timeout=15) as response:
-            return json.loads(response.read().decode('utf-8'))
-
-    def get_status():
+    def request_check():
         try:
-            return shared_request('/status')
-        except Exception as exc:
-            return {
-                'current': current_version,
-                'latest': None,
-                'update_available': False,
-                'running': False,
-                'last_result': 'failed',
-                'last_log': '',
-                'error': f'Shared updater unavailable: {exc}',
-            }
+            (updater_dir / 'check.request').write_text(datetime.now().isoformat(timespec='seconds'))
+            return True
+        except OSError:
+            return False
 
     def updates_view():
-        status = get_status()
-        latest = status.get('latest') or None
-        raw_status = 'running' if status.get('running') else (status.get('last_result') or 'idle')
+        latest = latest_version()
+        raw_status = read_text(updater_dir / 'status', 'idle') or 'idle'
         status_label, status_kind = friendly_status(raw_status)
-        if status.get('error'):
-            status_label, status_kind = 'Updater unavailable', 'bad'
+        update_available = bool(latest and version_tuple(latest) > version_tuple(current_version))
         return render_template(
             'updates.html',
-            current_version=status.get('current') or current_version,
+            current_version=current_version,
             latest_version=latest,
-            update_available=bool(status.get('update_available')),
+            update_available=update_available,
             updater_status=raw_status,
             status_label=status_label,
             status_kind=status_kind,
-            update_log=status.get('last_log', '') or status.get('error', ''),
-            checked_at=datetime.now().strftime('%H:%M:%S'),
+            update_log=tail(updater_dir / 'update.log'),
+            checked_at=read_text(updater_dir / 'last_check', datetime.now().strftime('%H:%M:%S')),
         )
 
     def install_view():
-        status = get_status()
-        latest = status.get('latest')
-        if status.get('error'):
-            flash(status['error'], 'error')
+        latest = latest_version()
+        if not latest:
+            request_check()
+            flash('The updater has not completed a GitHub check yet. Press Check Again, then try once the latest version appears.', 'info')
             return redirect(url_for('updates'))
-        if not latest or not status.get('update_available'):
+        if version_tuple(latest) <= version_tuple(current_version):
             flash('You already have the latest version.', 'info')
             return redirect(url_for('updates'))
         try:
-            response = shared_request('/install', method='POST')
-            flash(response.get('message') or f'Update v{latest} has been queued.', 'success')
-        except urllib.error.HTTPError as exc:
-            try:
-                detail = json.loads(exc.read().decode('utf-8')).get('message') or str(exc)
-            except Exception:
-                detail = str(exc)
-            flash(f'The update could not be started: {detail}', 'error')
-        except Exception as exc:
-            flash(f'The shared updater could not be reached: {exc}', 'error')
+            (updater_dir / 'status').write_text('queued')
+            (updater_dir / 'update.request').write_text(datetime.now().isoformat(timespec='seconds'))
+            flash(f'Update v{latest} has been queued. This page will refresh automatically.', 'success')
+        except OSError as exc:
+            flash(f'The update could not be started: {exc}', 'error')
         return redirect(url_for('updates'))
 
     def status_view():
-        status = get_status()
-        raw_status = 'running' if status.get('running') else (status.get('last_result') or 'idle')
+        if request.args.get('check') == '1':
+            request_check()
+        latest = latest_version()
+        raw_status = read_text(updater_dir / 'status', 'idle') or 'idle'
         status_label, status_kind = friendly_status(raw_status)
-        if status.get('error'):
-            status_label, status_kind = 'Updater unavailable', 'bad'
         return jsonify({
-            'current': status.get('current') or current_version,
-            'latest': status.get('latest'),
+            'current': current_version,
+            'latest': latest,
             'raw_status': raw_status,
             'status_label': status_label,
             'status_kind': status_kind,
-            'update_available': bool(status.get('update_available')),
-            'log': status.get('last_log', '') or status.get('error', ''),
-            'checked_at': datetime.now().strftime('%H:%M:%S'),
+            'update_available': bool(latest and version_tuple(latest) > version_tuple(current_version)),
+            'log': tail(updater_dir / 'update.log', 24),
+            'checked_at': read_text(updater_dir / 'last_check', ''),
         })
 
     app.view_functions['updates'] = updates_view
