@@ -4,11 +4,13 @@ services:
     container_name: inventory-manager
     ports:
       - "1975:1975"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - DATA_DIR=/data
       - PHOTO_DIR=/photos
       - BACKUP_DIR=/backups
-      - UPDATER_DIR=/updater
+      - SHARED_UPDATER_URL=${SHARED_UPDATER_URL:-http://host.docker.internal:8093/apps/inventory-manager}
       - MAX_SINGLE_UPLOAD_GB=${MAX_SINGLE_UPLOAD_GB:-8}
       - PHOTO_WORKER_POLL_SECONDS=${PHOTO_WORKER_POLL_SECONDS:-2}
       - AUTH_ENABLED=${AUTH_ENABLED:-false}
@@ -24,16 +26,4 @@ services:
       - ${HOST_PROJECT_DIR:-.}/data:/data
       - ${HOST_PROJECT_DIR:-.}/photos:/photos
       - ${HOST_PROJECT_DIR:-.}/backups:/backups
-      - ${HOST_PROJECT_DIR:-.}/updater-state:/updater
-    restart: unless-stopped
-
-  inventory-updater:
-    image: docker:27-cli
-    container_name: inventory-updater
-    working_dir: /project
-    command: ["sh", "-c", "apk add --no-cache git docker-cli-compose >/dev/null 2>&1 && git config --global --add safe.directory /project && sh /project/updater.sh"]
-    volumes:
-      - ./:/project
-      - ./updater-state:/updater
-      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
