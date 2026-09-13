@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.12 — Forced thumbnail rebuild
+
+- Add Photo Maintenance to Owner Account settings.
+- Add a confirmed Rebuild Photo Thumbnails action that removes generated caches only.
+- Advance every photo cache key so browsers immediately request rebuilt thumbnails.
+- Preserve source photos, originals, edits, ordering and product assignments.
+
 ## 0.6.11 — Photo editing controls
 
 - Place Rotate 90° directly beside Crop Photo in Manage Photos.
