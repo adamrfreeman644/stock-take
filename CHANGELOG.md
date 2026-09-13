@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.8 — Photo rotation crash fix
+
+- Fix Rotate 90° returning an Internal Server Error by fully decoding the source before writing.
+- Write rotated images to a temporary file and replace the original atomically, preventing the active source file from being truncated.
+- Show a recoverable error message instead of a server-error page if an image format cannot be rotated.
+
 ## 0.6.7 — Non-destructive photo rotation
 
 - Add a Rotate 90° button to Manage Photos.
