@@ -554,7 +554,7 @@ def configure(app, server):
                     '.webp': 'WEBP', '.heic': 'HEIF', '.heif': 'HEIF',
                 }.get(target.suffix.lower())
                 rotated.save(temporary, format=format_name)
-                temporary.replace(target)
+                os.replace(os.fspath(temporary), os.fspath(target))
             except (OSError, ValueError) as exc:
                 temporary.unlink(missing_ok=True)
                 flash(f'Photo could not be rotated: {exc}', 'error')
