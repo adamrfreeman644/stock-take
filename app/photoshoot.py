@@ -350,12 +350,19 @@ def session_detail(session_id):
         scan_rows = conn.execute(
             '''SELECT s.product_id,s.scanned_at,p.item,
                       (SELECT ib.barcode FROM item_barcodes ib
-                       WHERE ib.product_id=p.id ORDER BY ib.id LIMIT 1) AS barcode
+                       WHERE ib.product_id=p.id ORDER BY ib.id LIMIT 1) AS barcode,
+                      s.id AS marker_id
                FROM photo_shoot_scans s
                JOIN products p ON p.id=s.product_id
                WHERE s.session_id=?
-               ORDER BY s.scanned_at,s.id''',
-            (session_id,),
+               UNION ALL
+               SELECT ps.resolved_product_id AS product_id,ps.scanned_at,p.item,
+                      ps.barcode,ps.id AS marker_id
+               FROM photo_shoot_pending_scans ps
+               JOIN products p ON p.id=ps.resolved_product_id
+               WHERE ps.session_id=? AND ps.resolved_product_id IS NOT NULL
+               ORDER BY scanned_at,marker_id''',
+            (session_id, session_id),
         ).fetchall()
         for row in scan_rows:
             key = int(row['product_id'])
