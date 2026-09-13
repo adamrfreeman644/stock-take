@@ -7,8 +7,8 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from flask import Blueprint, jsonify, render_template, request, redirect, url_for, flash
-from PIL import Image, ExifTags
+from flask import Blueprint, jsonify, render_template, request, redirect, url_for, flash, send_file
+from PIL import Image, ExifTags, ImageOps
 from werkzeug.utils import secure_filename
 
 try:
@@ -111,6 +111,9 @@ def init_tables():
         CREATE INDEX IF NOT EXISTS idx_photo_jobs_status ON photo_upload_jobs(status,id);
         CREATE INDEX IF NOT EXISTS idx_photo_items_job ON photo_upload_items(job_id,order_index,id);
         ''')
+        session_columns = {row['name'] for row in conn.execute('PRAGMA table_info(photo_shoot_sessions)').fetchall()}
+        if 'deleted_at' not in session_columns:
+            conn.execute('ALTER TABLE photo_shoot_sessions ADD COLUMN deleted_at TEXT')
 
 
 def _staging_dir(job_id):
@@ -308,7 +311,7 @@ def photo_shoot():
                                       WHERE session_id=? AND resolved_product_id IS NULL''', (session['id'],)).fetchall()
             scans = sorted([dict(r) for r in known] + [dict(r) for r in waiting], key=lambda r: r['scanned_at'], reverse=True)
             current = scans[0] if scans else None
-        recent = conn.execute("SELECT * FROM photo_shoot_sessions ORDER BY id DESC LIMIT 8").fetchall()
+        recent = conn.execute("SELECT * FROM photo_shoot_sessions WHERE deleted_at IS NULL ORDER BY id DESC LIMIT 8").fetchall()
         jobs = {}
         for shoot in recent:
             job = conn.execute('SELECT * FROM photo_upload_jobs WHERE session_id=? ORDER BY id DESC LIMIT 1', (shoot['id'],)).fetchone()
@@ -323,6 +326,228 @@ def photo_shoot():
                                  GROUP BY ps.barcode
                                  ORDER BY first_scanned DESC''').fetchall()
     return render_template('photoshoot.html', session=session, scans=scans, current=current, recent=recent, jobs=jobs, pending=pending)
+
+
+def _result_data(raw):
+    try:
+        return json.loads(raw or '{}')
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+@bp.get('/session/<int:session_id>')
+def session_detail(session_id):
+    init_tables()
+    with db() as conn:
+        shoot = conn.execute(
+            'SELECT * FROM photo_shoot_sessions WHERE id=? AND deleted_at IS NULL',
+            (session_id,),
+        ).fetchone()
+        if not shoot:
+            return jsonify({'ok': False, 'error': 'Shoot not found.'}), 404
+
+        matched = {}
+        scan_rows = conn.execute(
+            '''SELECT s.product_id,s.scanned_at,p.item,
+                      (SELECT ib.barcode FROM item_barcodes ib
+                       WHERE ib.product_id=p.id ORDER BY ib.id LIMIT 1) AS barcode
+               FROM photo_shoot_scans s
+               JOIN products p ON p.id=s.product_id
+               WHERE s.session_id=?
+               ORDER BY s.scanned_at,s.id''',
+            (session_id,),
+        ).fetchall()
+        for row in scan_rows:
+            key = int(row['product_id'])
+            matched.setdefault(key, {
+                'product_id': key,
+                'item': row['item'],
+                'barcode': row['barcode'] or '',
+                'scanned_at': row['scanned_at'],
+                'photos': [],
+            })
+
+        assigned = conn.execute(
+            '''SELECT i.id AS upload_item_id,j.id AS job_id,i.result_json,ph.filename,ph.product_id
+               FROM photo_upload_jobs j
+               JOIN photo_upload_items i ON i.job_id=j.id AND i.status='Assigned'
+               LEFT JOIN photos ph
+                 ON ph.filename LIKE ('%_shoot' || j.id || '_' || i.id || '.%')
+               WHERE j.session_id=?
+               ORDER BY i.order_index,i.id''',
+            (session_id,),
+        ).fetchall()
+        for row in assigned:
+            data = _result_data(row['result_json'])
+            barcode = str(data.get('inventory_id') or '')
+            target = matched.get(int(row['product_id'])) if row['product_id'] is not None else next(
+                (item for item in matched.values() if item['barcode'] == barcode),
+                None,
+            )
+            if target and row['filename']:
+                target['photos'].append({
+                    'thumbnail_url': url_for('thumbnail_file', size='selector', filename=row['filename']),
+                    'full_url': url_for('photo_file', filename=row['filename']),
+                })
+
+        claimed = conn.execute(
+            '''SELECT a.id AS asset_id,a.product_id,ph.filename
+               FROM photo_pending_assets a
+               JOIN photo_upload_jobs j ON j.id=a.job_id
+               LEFT JOIN photos ph
+                 ON ph.filename LIKE ('%_pending' || a.id || '.%')
+               WHERE j.session_id=? AND a.product_id IS NOT NULL
+               ORDER BY a.id''',
+            (session_id,),
+        ).fetchall()
+        for row in claimed:
+            target = matched.get(int(row['product_id']))
+            if target and row['filename']:
+                target['photos'].append({
+                    'thumbnail_url': url_for('thumbnail_file', size='selector', filename=row['filename']),
+                    'full_url': url_for('photo_file', filename=row['filename']),
+                })
+
+        pending_rows = conn.execute(
+            '''SELECT ps.id AS pending_scan_id,ps.barcode,ps.scanned_at,
+                      a.id AS asset_id
+               FROM photo_shoot_pending_scans ps
+               LEFT JOIN photo_pending_assets a
+                 ON a.pending_scan_id=ps.id AND a.product_id IS NULL
+               WHERE ps.session_id=? AND ps.resolved_product_id IS NULL
+               ORDER BY ps.scanned_at,ps.id,a.id''',
+            (session_id,),
+        ).fetchall()
+        unmatched = {}
+        for row in pending_rows:
+            barcode = row['barcode']
+            item = unmatched.setdefault(barcode, {
+                'barcode': barcode,
+                'scanned_at': row['scanned_at'],
+                'photos': [],
+                'create_url': url_for('new_product', barcode=barcode),
+            })
+            if row['asset_id'] and not any(photo['asset_id'] == int(row['asset_id']) for photo in item['photos']):
+                item['photos'].append({
+                    'asset_id': int(row['asset_id']),
+                    'thumbnail_url': url_for('photoshoot.pending_thumbnail', asset_id=row['asset_id']),
+                })
+
+    return jsonify({
+        'ok': True,
+        'shoot': {
+            'id': int(shoot['id']),
+            'started_at': shoot['started_at'],
+            'ended_at': shoot['ended_at'],
+            'status': shoot['status'],
+        },
+        'matched': list(matched.values()),
+        'unmatched': list(unmatched.values()),
+    })
+
+
+@bp.get('/pending-thumbnail/<int:asset_id>')
+def pending_thumbnail(asset_id):
+    init_tables()
+    with db() as conn:
+        asset = conn.execute(
+            '''SELECT a.* FROM photo_pending_assets a
+               WHERE a.id=? AND a.product_id IS NULL''',
+            (asset_id,),
+        ).fetchone()
+    if not asset:
+        return jsonify({'ok': False, 'error': 'Pending photo not found.'}), 404
+
+    source = _staging_dir(asset['job_id']) / asset['staged_name']
+    if not source.is_file():
+        return jsonify({'ok': False, 'error': 'Pending photo file is missing.'}), 404
+    cache_dir = source.parent / '.thumbnails'
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    thumbnail = cache_dir / f'pending-{asset_id}.jpg'
+    try:
+        if not thumbnail.exists() or thumbnail.stat().st_mtime < source.stat().st_mtime:
+            with Image.open(source) as image:
+                image = ImageOps.exif_transpose(image)
+                if image.mode != 'RGB':
+                    image = image.convert('RGB')
+                image.thumbnail((160, 160), Image.Resampling.LANCZOS)
+                temporary = thumbnail.with_suffix('.tmp')
+                image.save(temporary, format='JPEG', quality=78, optimize=True, progressive=True)
+                temporary.replace(thumbnail)
+    except (OSError, ValueError):
+        return jsonify({'ok': False, 'error': 'Pending photo could not be previewed.'}), 422
+    return send_file(thumbnail, mimetype='image/jpeg', max_age=86400)
+
+
+@bp.post('/session/<int:session_id>/delete')
+def delete_session(session_id):
+    init_tables()
+    expected = f'DELETE SHOOT {session_id}'
+    confirmation = request.form.get('confirmation', '').strip()
+    preserve = request.form.get('preserve_photos') == 'yes'
+    if confirmation != expected or not preserve:
+        flash(f'The shoot was not deleted. Enter {expected} and confirm that product photos must be kept.', 'error')
+        return redirect(url_for('photoshoot.photo_shoot'))
+
+    with db() as conn:
+        shoot = conn.execute(
+            "SELECT * FROM photo_shoot_sessions WHERE id=? AND status='Ended' AND deleted_at IS NULL",
+            (session_id,),
+        ).fetchone()
+        if not shoot:
+            flash('Only an ended, visible shoot can be deleted.', 'error')
+            return redirect(url_for('photoshoot.photo_shoot'))
+        conn.execute(
+            'UPDATE photo_shoot_sessions SET deleted_at=? WHERE id=?',
+            (datetime.now().isoformat(timespec='seconds'), session_id),
+        )
+    flash(f'Shoot #{session_id} was removed from Recent Shoots. Assigned and pending photos were kept.', 'success')
+    return redirect(url_for('photoshoot.photo_shoot'))
+
+
+@bp.post('/session/<int:session_id>/pending/<path:barcode>/discard')
+def discard_pending_item(session_id, barcode):
+    init_tables()
+    if request.form.get('confirmation', '').strip() != 'DISCARD':
+        flash('Pending photos were not discarded. Type DISCARD to confirm.', 'error')
+        return redirect(url_for('photoshoot.photo_shoot'))
+
+    staged_files = []
+    with db() as conn:
+        rows = conn.execute(
+            '''SELECT a.id,a.job_id,a.staged_name,a.upload_item_id
+               FROM photo_pending_assets a
+               JOIN photo_shoot_pending_scans ps ON ps.id=a.pending_scan_id
+               WHERE ps.session_id=? AND ps.barcode=? AND a.product_id IS NULL''',
+            (session_id, barcode),
+        ).fetchall()
+        for row in rows:
+            staged_files.append(_staging_dir(row['job_id']) / row['staged_name'])
+            conn.execute(
+                "UPDATE photo_upload_items SET status='Discarded',result_json=? WHERE id=?",
+                (json.dumps({'reason': 'Discarded by owner'}, separators=(',', ':')), row['upload_item_id']),
+            )
+        conn.execute(
+            '''DELETE FROM photo_pending_assets
+               WHERE id IN (
+                   SELECT a.id FROM photo_pending_assets a
+                   JOIN photo_shoot_pending_scans ps ON ps.id=a.pending_scan_id
+                   WHERE ps.session_id=? AND ps.barcode=? AND a.product_id IS NULL
+               )''',
+            (session_id, barcode),
+        )
+        conn.execute(
+            '''DELETE FROM photo_shoot_pending_scans
+               WHERE session_id=? AND barcode=? AND resolved_product_id IS NULL''',
+            (session_id, barcode),
+        )
+    for path in staged_files:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    flash(f'Discarded held photos for barcode {barcode}.', 'success')
+    return redirect(url_for('photoshoot.photo_shoot'))
 
 
 @bp.post('/repair-order')
