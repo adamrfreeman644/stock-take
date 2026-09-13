@@ -12,7 +12,7 @@
 </div>
 <div class="detail-layout">
   <section class="gallery-panel">
-    {% if photos %}<div class="hero-photo"><img id="hero" src="{{ url_for('photo_file', filename=photos[0].filename) }}"></div>{% if photos|length > 1 %}<div class="photo-strip">{% for photo in photos %}<button type="button" onclick="document.getElementById('hero').src=this.firstElementChild.src"><img src="{{ url_for('photo_file', filename=photo.filename) }}"></button>{% endfor %}</div>{% endif %}{% else %}<div class="hero-photo no-photo">No photos</div>{% endif %}
+    {% if photos %}<div class="hero-photo"><img id="hero" src="{{ url_for('photo_file', filename=photos[0].filename) }}"></div>{% if photos|length > 1 %}<div class="photo-strip">{% for photo in photos %}<button type="button" onclick="document.getElementById('hero').src=this.dataset.full" data-full="{{ url_for('photo_file', filename=photo.filename) }}"><img loading="lazy" src="{{ url_for('thumbnail_file', size='selector', filename=photo.filename) }}"></button>{% endfor %}</div>{% endif %}{% else %}<div class="hero-photo no-photo">No photos</div>{% endif %}
   </section>
   <section class="product-info">
     <div class="product-title-row"><div><div class="product-code">Product #{{ product.id }}</div><h1>{{ product.item }}</h1></div><span class="status {{ product.status|lower }}">{{ product.status }}</span></div>
