@@ -8,6 +8,13 @@ from datetime import datetime
 from pathlib import Path
 from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, abort, Response
 from werkzeug.utils import secure_filename
+from PIL import Image, ImageOps
+
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.environ.get('DATA_DIR', BASE_DIR / 'data'))
@@ -413,6 +420,62 @@ def delete_photo(photo_id):
     except OSError:
         pass
     return redirect(url_for('edit_product', product_id=product_id))
+
+
+THUMBNAIL_SIZES = {
+    'inventory': (480, 480),
+    'selector': (160, 160),
+}
+
+
+def _safe_photo_path(filename):
+    photo_root = Path(PHOTO_DIR).resolve()
+    source = (photo_root / filename).resolve()
+    try:
+        source.relative_to(photo_root)
+    except ValueError:
+        abort(404)
+    if not source.is_file():
+        abort(404)
+    return photo_root, source
+
+
+@app.route('/photos/thumbnail/<size>/<path:filename>')
+def thumbnail_file(size, filename):
+    dimensions = THUMBNAIL_SIZES.get(size)
+    if not dimensions:
+        abort(404)
+
+    photo_root, source = _safe_photo_path(filename)
+    thumbnail_root = photo_root / '.thumbnails' / size
+    thumbnail_root.mkdir(parents=True, exist_ok=True)
+    # Keep the source extension in the cache name so filenames remain collision-free,
+    # while serving every browser thumbnail as a compact, widely supported JPEG.
+    thumbnail_name = f"{source.name}.jpg"
+    thumbnail = thumbnail_root / thumbnail_name
+
+    try:
+        if not thumbnail.exists() or thumbnail.stat().st_mtime < source.stat().st_mtime:
+            with Image.open(source) as image:
+                image = ImageOps.exif_transpose(image)
+                if image.mode != 'RGB':
+                    background = Image.new('RGB', image.size, 'white')
+                    if image.mode == 'RGBA':
+                        background.paste(image, mask=image.getchannel('A'))
+                    else:
+                        background.paste(image.convert('RGB'))
+                    image = background
+                image.thumbnail(dimensions, Image.Resampling.LANCZOS)
+                temporary = thumbnail.with_suffix('.tmp')
+                image.save(temporary, format='JPEG', quality=78, optimize=True, progressive=True)
+                temporary.replace(thumbnail)
+    except (OSError, ValueError):
+        # A corrupt or unsupported source should not break the inventory page.
+        return send_from_directory(photo_root, source.relative_to(photo_root))
+
+    response = send_from_directory(thumbnail_root, thumbnail_name, max_age=86400)
+    response.headers['Cache-Control'] = 'public, max-age=86400'
+    return response
 
 
 @app.route('/photos/<path:filename>')
