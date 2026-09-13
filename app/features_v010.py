@@ -9,7 +9,7 @@ from datetime import datetime, date
 from pathlib import Path
 
 from flask import abort, flash, redirect, render_template, request, send_from_directory, url_for
-from PIL import Image
+from PIL import Image, ImageOps
 
 
 def configure(app, server):
@@ -38,6 +38,7 @@ def configure(app, server):
         with db() as conn:
             ensure_column(conn, 'products', 'archived_at', 'TEXT')
             ensure_column(conn, 'photos', 'original_filename', 'TEXT')
+            ensure_column(conn, 'photos', 'updated_at', 'TEXT')
             conn.executescript('''
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -175,7 +176,7 @@ def configure(app, server):
                                         WHERE ib.barcode=? AND p.archived_at IS NULL LIMIT 1''', (q,)).fetchone()
                 if exact:
                     return redirect(url_for('product_detail', product_id=exact['id']))
-            sql = '''SELECT p.*, ph.filename AS main_photo,
+            sql = '''SELECT p.*, ph.filename AS main_photo, ph.updated_at AS main_photo_updated,
                      (SELECT MIN(ib.barcode) FROM item_barcodes ib WHERE ib.product_id=p.id) AS first_barcode
                      FROM products p
                      LEFT JOIN photos ph ON ph.id=(SELECT id FROM photos WHERE product_id=p.id ORDER BY sort_order,id LIMIT 1)
@@ -516,9 +517,37 @@ def configure(app, server):
                 if cropped.mode not in ('RGB', 'RGBA') and target.suffix.lower() in ('.jpg', '.jpeg'):
                     cropped = cropped.convert('RGB')
                 cropped.save(target)
+            conn.execute('UPDATE photos SET updated_at=? WHERE id=?', (datetime.now().isoformat(timespec='microseconds'), photo_id))
             log(conn, 'Photo', f"Photo cropped for product #{ph['product_id']}", ph['product_id'])
             product_id = ph['product_id']
         flash('Crop saved. The original is still available.', 'success')
+        return redirect(url_for('manage_photos', product_id=product_id))
+
+    @app.post('/photo/<int:photo_id>/rotate')
+    def rotate_photo(photo_id):
+        with db() as conn:
+            ph = conn.execute('SELECT * FROM photos WHERE id=?', (photo_id,)).fetchone()
+            if not ph:
+                abort(404)
+            target = PHOTO_DIR / ph['filename']
+            if not target.exists():
+                abort(404)
+            if not ph['original_filename']:
+                ext = target.suffix.lower() or '.jpg'
+                original_name = f"originals/original_{photo_id}_{uuid.uuid4().hex}{ext}"
+                (PHOTO_DIR / original_name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(target, PHOTO_DIR / original_name)
+                conn.execute('UPDATE photos SET original_filename=? WHERE id=?', (original_name, photo_id))
+            with Image.open(target) as image:
+                image = ImageOps.exif_transpose(image)
+                rotated = image.transpose(Image.Transpose.ROTATE_270)
+                if rotated.mode not in ('RGB', 'RGBA') and target.suffix.lower() in ('.jpg', '.jpeg'):
+                    rotated = rotated.convert('RGB')
+                rotated.save(target)
+            conn.execute('UPDATE photos SET updated_at=? WHERE id=?', (datetime.now().isoformat(timespec='microseconds'), photo_id))
+            log(conn, 'Photo', f"Photo rotated 90 degrees for product #{ph['product_id']}", ph['product_id'])
+            product_id = ph['product_id']
+        flash('Photo rotated 90° clockwise. The original is still available.', 'success')
         return redirect(url_for('manage_photos', product_id=product_id))
 
     @app.post('/photo/<int:photo_id>/reset-crop')
@@ -529,7 +558,8 @@ def configure(app, server):
                 abort(404)
             if ph['original_filename']:
                 shutil.copy2(PHOTO_DIR / ph['original_filename'], PHOTO_DIR / ph['filename'])
-                log(conn, 'Photo', f"Photo crop reset for product #{ph['product_id']}", ph['product_id'])
+                conn.execute('UPDATE photos SET updated_at=? WHERE id=?', (datetime.now().isoformat(timespec='microseconds'), photo_id))
+                log(conn, 'Photo', f"Photo edits reset for product #{ph['product_id']}", ph['product_id'])
             product_id = ph['product_id']
         return redirect(url_for('manage_photos', product_id=product_id))
 
