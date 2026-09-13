@@ -12,6 +12,21 @@ from flask import abort, flash, redirect, render_template, request, send_from_di
 from PIL import Image, ImageOps
 
 
+def clear_thumbnail_caches(photo_root):
+    """Remove generated thumbnail trees without touching source photos."""
+    root = Path(photo_root)
+    cache_dirs = sorted(
+        (path for path in root.rglob('.thumbnails') if path.is_dir()),
+        key=lambda path: len(path.parts),
+        reverse=True,
+    ) if root.exists() else []
+    removed = 0
+    for cache_dir in cache_dirs:
+        removed += sum(1 for path in cache_dir.rglob('*') if path.is_file())
+        shutil.rmtree(cache_dir)
+    return removed
+
+
 def configure(app, server):
     DB_PATH = server.DB_PATH
     PHOTO_DIR = server.PHOTO_DIR
@@ -459,6 +474,24 @@ def configure(app, server):
         if not product:
             abort(404)
         return render_template('manage_photos.html', product=product, photos=photos)
+
+    @app.post('/account/photos/rebuild-thumbnails')
+    def rebuild_photo_thumbnails():
+        if request.form.get('confirm') != 'REBUILD':
+            flash('Thumbnail rebuild was not confirmed.', 'error')
+            return redirect(url_for('account_settings'))
+        removed = clear_thumbnail_caches(Path(PHOTO_DIR))
+        refreshed_at = datetime.now().isoformat(timespec='microseconds')
+        with db() as conn:
+            photo_count = conn.execute('SELECT COUNT(*) AS n FROM photos').fetchone()['n']
+            conn.execute('UPDATE photos SET updated_at=?', (refreshed_at,))
+            log(conn, 'Photo', f'Rebuilt thumbnail cache: {removed} cached file(s) cleared')
+        flash(
+            f'Cleared {removed} cached thumbnail(s). '
+            f'Thumbnails for {photo_count} photo(s) will rebuild automatically as they appear.',
+            'success',
+        )
+        return redirect(url_for('account_settings'))
 
     @app.get('/photo/<int:photo_id>/download')
     def download_photo(photo_id):

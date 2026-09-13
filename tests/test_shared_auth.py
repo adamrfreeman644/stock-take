@@ -136,3 +136,21 @@ def test_existing_tenant_photos_gain_cache_timestamp_column(tmp_path):
     with sqlite3.connect(database) as conn:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(photos)")}
     assert "updated_at" in columns
+
+
+def test_thumbnail_rebuild_only_removes_generated_caches(tmp_path):
+    from app.features_v010 import clear_thumbnail_caches
+
+    source = tmp_path / "product.jpg"
+    original = tmp_path / "originals" / "product.jpg"
+    inventory_thumbnail = tmp_path / ".thumbnails" / "inventory" / "product.jpg.jpg"
+    pending_thumbnail = tmp_path / ".photo-shoot-staging" / "job-1" / ".thumbnails" / "pending-1.jpg"
+    for path in (source, original, inventory_thumbnail, pending_thumbnail):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"image")
+
+    assert clear_thumbnail_caches(tmp_path) == 2
+    assert source.exists()
+    assert original.exists()
+    assert not inventory_thumbnail.exists()
+    assert not pending_thumbnail.exists()
