@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.9 — Tenant-path rotation fix
+
+- Fix the remaining Rotate 90° server error when replacing the completed temporary image through tenant-aware photo storage.
+- Use the operating-system filesystem replacement operation supported by both normal paths and account-specific dynamic paths.
+
 ## 0.6.8 — Photo rotation crash fix
 
 - Fix Rotate 90° returning an Internal Server Error by fully decoding the source before writing.
