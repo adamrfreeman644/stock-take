@@ -3,6 +3,7 @@
 {% block content %}
 <style>
 .upload-progress{display:none;margin-top:10px;min-width:240px}.upload-progress.active{display:block}.upload-bar{height:10px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin:6px 0}.upload-bar>span{display:block;height:100%;width:0;background:#F97316;transition:width .15s}.upload-detail{font-size:12px;color:#64748b}.job-summary{margin-top:8px;font-size:13px}.job-summary strong{margin-right:8px}.batch-upload.busy .btn{pointer-events:none;opacity:.65}.upload-toast{position:fixed;right:18px;bottom:18px;z-index:9999;display:none;min-width:210px;max-width:calc(100vw - 36px);padding:12px 16px;border-radius:12px;background:#1f2937;color:#fff;box-shadow:0 10px 30px #0004;font-size:14px;font-weight:800;pointer-events:none;user-select:none}.upload-toast.active{display:block}.upload-toast small{display:block;margin-top:3px;font-size:11px;font-weight:600;color:#cbd5e1}
+.shoot-title-button{appearance:none;border:0;background:transparent;color:inherit;font:inherit;font-weight:800;padding:8px 0;min-height:44px;text-align:left;cursor:pointer}.shoot-title-button:hover,.shoot-title-button:focus{text-decoration:underline}.ended-button{appearance:none;border:0;cursor:pointer;min-height:44px}.shoot-modal-backdrop{position:fixed;inset:0;z-index:10000;background:#0009;display:flex;align-items:center;justify-content:center;padding:16px}.shoot-modal-backdrop[hidden]{display:none}.shoot-modal{width:min(680px,100%);max-height:88vh;overflow:auto;background:#fff;color:#1f2937;border-radius:18px;padding:20px;box-shadow:0 24px 70px #0006}.shoot-modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px}.shoot-modal-head h2{margin:0}.shoot-modal-close{min-width:44px;min-height:44px}.shoot-detail-list{display:grid;gap:12px}.shoot-detail-tile{border:1px solid #e2e8f0;border-radius:14px;padding:13px}.shoot-detail-title{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.shoot-detail-title a,.shoot-detail-title strong{font-weight:800;color:inherit}.shoot-detail-barcode{font-family:monospace;color:#64748b;overflow-wrap:anywhere}.shoot-detail-thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.shoot-detail-thumbs img{width:64px;height:64px;object-fit:cover;border-radius:9px;border:1px solid #e2e8f0}.shoot-detail-empty{margin-top:8px;color:#64748b}.shoot-unmatched-heading{margin:22px 0 10px}.shoot-unmatched-tile{border-color:#f2c27b;background:#fffbeb}.shoot-unmatched-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.shoot-delete-warning{padding:13px;border-radius:12px;background:#fff1f2;color:#991b1b;margin:12px 0}.shoot-confirm-input{width:100%;min-height:48px;margin:10px 0;font-size:16px}.shoot-confirm-check{display:flex;gap:9px;align-items:flex-start;margin:12px 0}.shoot-confirm-check input{margin-top:4px}.shoot-modal-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:18px}@media(prefers-color-scheme:dark){.shoot-modal{background:#1f2937;color:#f8fafc}.shoot-detail-tile{border-color:#475569}.shoot-detail-barcode,.shoot-detail-empty{color:#cbd5e1}.shoot-unmatched-tile{background:#422006;border-color:#b45309}.shoot-delete-warning{background:#4c0519;color:#fecdd3}}
 .scanner-ready{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px;font-weight:800;color:#166534}.scanner-ready-dot{width:9px;height:9px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 4px #dcfce7}.scan-form label{display:block}.scan-input-wrap{position:relative}.scan-input-wrap input{width:100%;min-height:58px;font-size:18px;font-weight:800;letter-spacing:.02em;padding-right:48px}.scan-input-icon{position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:22px;pointer-events:none}.shoot-live .current-product{margin-top:14px}.scan-help{margin-top:6px;font-size:12px;color:#64748b}.current-product.pending-current{border-color:#f59e0b;background:#fffbeb}.pending-current .current-label,.scan-row.pending strong{color:#b45309}.pending-section{margin-top:16px}.pending-section-head{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-bottom:10px}.pending-list{display:grid;gap:8px}.pending-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 13px;border:1px solid #f2c27b;border-radius:12px;background:#fffbeb}.pending-row-main{min-width:0}.pending-row strong{display:block;font-size:15px}.pending-row span{display:block;margin-top:2px;font-size:12px;color:#7c5b26}.pending-count{flex:0 0 auto;font-weight:800;color:#92400e;background:#fef3c7;padding:5px 8px;border-radius:999px;font-size:12px}
 @media(max-width:560px){.upload-toast{right:12px;bottom:12px;max-width:calc(100vw - 24px)}.shoot-shell.session-active{margin:-4px -2px 0}.shoot-shell.session-active>.page-head{margin-bottom:10px}.shoot-shell.session-active>.page-head .eyebrow{font-size:11px}.shoot-shell.session-active>.page-head h1{font-size:28px;margin:2px 0}.shoot-shell.session-active>.page-head .muted{display:none}.shoot-live{padding:14px!important;border-radius:14px!important}.shoot-live-head{margin-bottom:12px!important}.scan-form{display:block!important}.scan-form .btn{width:100%;min-height:52px;margin-top:10px}.scan-input-wrap input{min-height:64px;font-size:20px;border-width:2px}.current-product{padding:15px!important}.current-label{font-size:11px!important}.current-code{font-size:24px!important;line-height:1.05}.current-name{font-size:18px!important;line-height:1.2;margin-top:5px}.current-time{font-size:12px!important;margin-top:7px}.scan-history{margin-top:14px!important}.scan-history h2{font-size:16px;margin-bottom:7px}.scan-row{display:grid!important;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;padding:8px 0!important}.scan-row strong{grid-column:1;font-size:14px}.scan-row span{grid-column:1;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.scan-row time{grid-column:2;grid-row:1/3;align-self:center;font-size:12px}.shoot-live form:last-child .btn{min-height:52px;margin-top:14px}.shoot-sessions{margin-top:14px}.session-active .shoot-sessions{display:none}.pending-row{align-items:flex-start}.pending-section-head{align-items:flex-start;flex-direction:column}}
 </style>
@@ -52,10 +53,10 @@
     {% for s in recent %}
     {% set job = jobs.get(s.id) if jobs else None %}
     <div class="session-row">
-      <div><strong>Shoot #{{ s.id }}</strong><span>{{ s.started_at[:19].replace('T',' ') }}</span>
+      <div><button type="button" class="shoot-title-button" data-open-shoot data-detail-url="{{ url_for('photoshoot.session_detail', session_id=s.id) }}">Shoot #{{ s.id }}</button><span>{{ s.started_at[:19].replace('T',' ') }}</span>
         {% if job %}<div class="job-summary" data-existing-job="{{ job.id }}"><strong>{{ job.status }}</strong><span>{{ job.processed_files }}/{{ job.total_files or job.uploaded_files }} processed · {{ job.assigned_count }} assigned · {{ job.unmatched_count }} review</span></div>{% endif %}
       </div>
-      <span class="status {{ 'available' if s.status == 'Active' else 'sold' }}">{{ s.status }}</span>
+      {% if s.status == 'Active' %}<span class="status available">{{ s.status }}</span>{% else %}<button type="button" class="status sold ended-button" data-delete-shoot data-shoot-id="{{ s.id }}" data-delete-url="{{ url_for('photoshoot.delete_session', session_id=s.id) }}">ENDED</button>{% endif %}
       {% if s.status != 'Active' %}
       <form class="batch-upload" data-batch-form data-session-id="{{ s.id }}">
         <label class="btn">Choose photo batch<input type="file" accept="image/*,.heic,.heif" multiple required data-photo-input></label>
@@ -74,6 +75,9 @@
   {% endif %}
 </section>
 <div class="upload-toast" data-upload-toast aria-live="polite"><span data-upload-toast-main>Uploading photos 0 of 0</span><small data-upload-toast-sub>Keep this page open while files are staging.</small></div>
+<div class="shoot-modal-backdrop" data-shoot-modal-backdrop hidden>
+  <section class="shoot-modal" role="dialog" aria-modal="true" aria-labelledby="shoot-modal-title" data-shoot-modal></section>
+</div>
 {% endblock %}
 {% block scripts %}
 {% if session %}<script>
@@ -131,6 +135,46 @@ document.querySelectorAll('[data-batch-form]').forEach(form=>{
     }catch(err){uploadToastMain.textContent='Photo upload stopped';uploadToastSub.textContent=err.message;label.textContent='Upload stopped';detail.textContent=err.message;bar.style.width='0%';setTimeout(hideUploadToast,8000)}finally{form.classList.remove('busy')}
   });
 });
+
+const shootBackdrop=document.querySelector('[data-shoot-modal-backdrop]'),shootModal=document.querySelector('[data-shoot-modal]');
+const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+function closeShootModal(){shootBackdrop.hidden=true;shootModal.innerHTML=''}
+function modalShell(title,body){shootModal.innerHTML=`<div class="shoot-modal-head"><div><h2 id="shoot-modal-title">${escapeHtml(title)}</h2></div><button type="button" class="btn shoot-modal-close" data-modal-close aria-label="Close">✕</button></div>${body}`;shootBackdrop.hidden=false;shootModal.querySelector('[data-modal-close]').onclick=closeShootModal}
+shootBackdrop.addEventListener('click',event=>{if(event.target===shootBackdrop)closeShootModal()});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!shootBackdrop.hidden)closeShootModal()});
+
+document.querySelectorAll('[data-open-shoot]').forEach(button=>button.addEventListener('click',async()=>{
+  modalShell(button.textContent,'<p class="muted">Loading scanned items…</p>');
+  try{
+    const response=await fetch(button.dataset.detailUrl),data=await response.json();
+    if(!response.ok||!data.ok)throw new Error(data.error||'Unable to open shoot.');
+    const thumbs=photos=>photos.length?`<div class="shoot-detail-thumbs">${photos.map((photo,index)=>`<a href="${escapeHtml(photo.full_url||photo.thumbnail_url)}" target="_blank" rel="noopener"><img loading="lazy" src="${escapeHtml(photo.thumbnail_url)}" alt="Photo ${index+1}"></a>`).join('')}</div>`:'<div class="shoot-detail-empty">No photos assigned</div>';
+    const matched=data.matched.map(item=>`<article class="shoot-detail-tile"><div class="shoot-detail-title"><a href="/product/${item.product_id}">${escapeHtml(item.item)}</a><span class="shoot-detail-barcode">${escapeHtml(item.barcode)}</span></div>${thumbs(item.photos)}</article>`).join('')||'<div class="shoot-detail-empty">No listed products were scanned.</div>';
+    const unmatched=data.unmatched.map(item=>`<article class="shoot-detail-tile shoot-unmatched-tile"><div class="shoot-detail-title"><strong>Product not found</strong><span class="shoot-detail-barcode">${escapeHtml(item.barcode)}</span></div>${thumbs(item.photos)}<div class="shoot-unmatched-actions"><a class="btn primary" href="${escapeHtml(item.create_url)}">Create Product</a><button type="button" class="btn danger" data-discard-pending data-session-id="${data.shoot.id}" data-barcode="${escapeHtml(item.barcode)}">Discard</button></div></article>`).join('');
+    const unmatchedSection=unmatched?`<h3 class="shoot-unmatched-heading">Unmatched items</h3><p class="muted">Create the product with this barcode and the held photos will attach automatically.</p><div class="shoot-detail-list">${unmatched}</div>`:'';
+    modalShell(`Shoot #${data.shoot.id}`,`<p class="muted">${data.matched.length} listed item${data.matched.length===1?'':'s'} · ${data.unmatched.length} unmatched</p><div class="shoot-detail-list">${matched}</div>${unmatchedSection}`);
+    shootModal.querySelectorAll('[data-discard-pending]').forEach(discard=>discard.onclick=()=>showDiscard(discard.dataset.sessionId,discard.dataset.barcode));
+  }catch(error){modalShell(button.textContent,`<div class="flash error">${escapeHtml(error.message)}</div>`)}
+}));
+
+function showDiscard(sessionId,barcode){
+  modalShell('Discard unmatched photos?',`<div class="shoot-delete-warning"><strong>This permanently deletes the held photos for barcode ${escapeHtml(barcode)}.</strong><br>They will no longer attach when the product is created.</div><p>Type <strong>DISCARD</strong> to continue.</p><form method="post" action="/photo-shoot/session/${encodeURIComponent(sessionId)}/pending/${encodeURIComponent(barcode)}/discard"><input class="shoot-confirm-input" name="confirmation" autocomplete="off" data-discard-input placeholder="DISCARD"><div class="shoot-modal-actions"><button type="button" class="btn" data-modal-cancel>Cancel</button><button type="submit" class="btn danger" data-discard-submit disabled>Discard Photos</button></div></form>`);
+  const input=shootModal.querySelector('[data-discard-input]'),submit=shootModal.querySelector('[data-discard-submit]');
+  input.oninput=()=>submit.disabled=input.value!=='DISCARD';
+  shootModal.querySelector('[data-modal-cancel]').onclick=closeShootModal;
+}
+
+document.querySelectorAll('[data-delete-shoot]').forEach(button=>button.addEventListener('click',()=>{
+  const id=button.dataset.shootId,url=button.dataset.deleteUrl;
+  modalShell(`Delete Shoot #${id}?`,`<div class="shoot-delete-warning"><strong>Step 1 of 2</strong><br>This removes the shoot from Recent Shoots. Photos already attached to products and unmatched photos waiting for products will remain safe.</div><div class="shoot-modal-actions"><button type="button" class="btn" data-modal-cancel>Cancel</button><button type="button" class="btn danger" data-delete-continue>Continue</button></div>`);
+  shootModal.querySelector('[data-modal-cancel]').onclick=closeShootModal;
+  shootModal.querySelector('[data-delete-continue]').onclick=()=>{
+    modalShell('Final confirmation',`<p>Type <strong>DELETE SHOOT ${id}</strong> to confirm.</p><form method="post" action="${escapeHtml(url)}"><input class="shoot-confirm-input" name="confirmation" autocomplete="off" data-delete-input placeholder="DELETE SHOOT ${id}"><label class="shoot-confirm-check"><input type="checkbox" name="preserve_photos" value="yes" data-preserve-check><span>I understand assigned and unmatched photos will be kept.</span></label><div class="shoot-modal-actions"><button type="button" class="btn" data-modal-cancel>Cancel</button><button type="submit" class="btn danger" data-delete-submit disabled>Delete Shoot</button></div></form>`);
+    const input=shootModal.querySelector('[data-delete-input]'),check=shootModal.querySelector('[data-preserve-check]'),submit=shootModal.querySelector('[data-delete-submit]');
+    const validate=()=>submit.disabled=!(input.value===`DELETE SHOOT ${id}`&&check.checked);
+    input.oninput=validate;check.onchange=validate;shootModal.querySelector('[data-modal-cancel]').onclick=closeShootModal;
+  };
+}));
 
 document.querySelectorAll('[data-existing-job]').forEach(el=>{const jobId=el.dataset.existingJob;if(!jobId)return;const status=el.querySelector('strong')?.textContent;if(status==='Queued'||status==='Processing'){setInterval(async()=>{try{const r=await fetch(`/photo-shoot/upload/status/${jobId}`),j=await r.json();if(j.ok){el.innerHTML=`<strong>${j.status}</strong><span>${j.processed_files}/${j.total_files||j.uploaded_files} processed · ${j.assigned_count} assigned · ${j.unmatched_count} review</span>`}}catch(e){}},2000)}});
 </script>
