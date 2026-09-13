@@ -3,6 +3,7 @@ import os
 import shutil
 import sqlite3
 import uuid
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -137,6 +138,73 @@ def _job_payload(conn, job_id, include_items=False):
     return payload
 
 
+def _repair_existing_photoshoot_order(conn):
+    """Repair already-assigned Photo Shoot images using their saved taken timestamp.
+
+    Only photos created by Photo Shoot jobs are touched. Manual uploads keep their order.
+    """
+    rows = conn.execute(
+        '''SELECT ph.id AS photo_id, ph.product_id, ph.sort_order,
+                  i.id AS upload_item_id, i.result_json
+           FROM photos ph
+           JOIN photo_upload_jobs j
+             ON ph.filename LIKE ('p' || ph.product_id || '_shoot' || j.id || '_%')
+           JOIN photo_upload_items i
+             ON i.job_id=j.id
+            AND ph.filename LIKE ('%_shoot' || j.id || '_' || i.id || '.%')
+           WHERE i.status='Assigned'
+           ORDER BY ph.product_id, ph.id'''
+    ).fetchall()
+
+    grouped = defaultdict(list)
+    for row in rows:
+        taken = None
+        try:
+            payload = json.loads(row['result_json'] or '{}')
+            raw_taken = payload.get('taken')
+            if raw_taken:
+                taken = datetime.fromisoformat(raw_taken)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+        grouped[int(row['product_id'])].append({
+            'photo_id': int(row['photo_id']),
+            'upload_item_id': int(row['upload_item_id']),
+            'taken': taken,
+        })
+
+    repaired_products = 0
+    repaired_photos = 0
+    for product_id, shoot_photos in grouped.items():
+        if len(shoot_photos) < 2:
+            continue
+        shoot_ids = [p['photo_id'] for p in shoot_photos]
+        placeholders = ','.join('?' for _ in shoot_ids)
+        manual_rows = conn.execute(
+            f'''SELECT id FROM photos
+                WHERE product_id=? AND id NOT IN ({placeholders})
+                ORDER BY sort_order,id''',
+            [product_id] + shoot_ids,
+        ).fetchall()
+        ordered_shoot = sorted(
+            shoot_photos,
+            key=lambda p: (p['taken'] is None, p['taken'] or datetime.max, p['upload_item_id'], p['photo_id']),
+        )
+        final_ids = [int(r['id']) for r in manual_rows] + [p['photo_id'] for p in ordered_shoot]
+        changed = False
+        current_ids = [int(r['id']) for r in conn.execute(
+            'SELECT id FROM photos WHERE product_id=? ORDER BY sort_order,id',
+            (product_id,),
+        ).fetchall()]
+        if current_ids != final_ids:
+            changed = True
+        for order, photo_id in enumerate(final_ids, start=1):
+            conn.execute('UPDATE photos SET sort_order=? WHERE id=?', (order, photo_id))
+        if changed:
+            repaired_products += 1
+            repaired_photos += len(shoot_photos)
+    return repaired_products, repaired_photos
+
+
 def claim_pending_photos(product_id, barcode):
     """Attach any Photo Shoot assets waiting for barcode to an existing product."""
     code = str(barcode or '').strip()
@@ -255,6 +323,18 @@ def photo_shoot():
                                  GROUP BY ps.barcode
                                  ORDER BY first_scanned DESC''').fetchall()
     return render_template('photoshoot.html', session=session, scans=scans, current=current, recent=recent, jobs=jobs, pending=pending)
+
+
+@bp.post('/repair-order')
+def repair_photo_order():
+    init_tables()
+    with db() as conn:
+        products, photos = _repair_existing_photoshoot_order(conn)
+    if products:
+        flash(f'Repaired photo order for {products} product(s) / {photos} Photo Shoot image(s). The first photo taken is now primary.', 'success')
+    else:
+        flash('No reversed Photo Shoot photo groups needed repairing.', 'info')
+    return redirect(url_for('photoshoot.photo_shoot'))
 
 
 @bp.post('/start')
