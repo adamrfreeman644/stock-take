@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.11 — Photo editing controls
+
+- Place Rotate 90° directly beside Crop Photo in Manage Photos.
+- Keep download, original and main-photo actions grouped separately.
+
 ## 0.6.10 — Existing-account photo edit fix
 
 - Add the missing `photos.updated_at` migration to every account-specific inventory database.
