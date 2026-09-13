@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.7 — Non-destructive photo rotation
+
+- Add a Rotate 90° button to Manage Photos.
+- Rotate the displayed photo clockwise on every tap while preserving the original file for Reset to Original.
+- Refresh full-size listing images, selector thumbnails and inventory card/table thumbnails immediately after crop, rotate or reset.
+- Keep photo ordering and primary-photo selection unchanged during rotation.
+
 ## 0.6.6 — Photoshoot history viewer and safe deletion
 
 - Open an ended shoot by tapping its Shoot number and show every scanned listed product with its assigned photo thumbnails.
