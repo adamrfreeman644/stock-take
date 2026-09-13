@@ -538,12 +538,27 @@ def configure(app, server):
                 (PHOTO_DIR / original_name).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(target, PHOTO_DIR / original_name)
                 conn.execute('UPDATE photos SET original_filename=? WHERE id=?', (original_name, photo_id))
-            with Image.open(target) as image:
-                image = ImageOps.exif_transpose(image)
-                rotated = image.transpose(Image.Transpose.ROTATE_270)
+            temporary = target.parent / f'.rotate-{photo_id}-{uuid.uuid4().hex}.tmp'
+            try:
+                with Image.open(target) as image:
+                    source_format = image.format
+                    # Pillow decodes lazily. Copy the fully decoded image before writing so
+                    # the source is never truncated while it is still being read.
+                    image.load()
+                    prepared = ImageOps.exif_transpose(image).copy()
+                rotated = prepared.transpose(Image.Transpose.ROTATE_270)
                 if rotated.mode not in ('RGB', 'RGBA') and target.suffix.lower() in ('.jpg', '.jpeg'):
                     rotated = rotated.convert('RGB')
-                rotated.save(target)
+                format_name = source_format or {
+                    '.jpg': 'JPEG', '.jpeg': 'JPEG', '.png': 'PNG',
+                    '.webp': 'WEBP', '.heic': 'HEIF', '.heif': 'HEIF',
+                }.get(target.suffix.lower())
+                rotated.save(temporary, format=format_name)
+                temporary.replace(target)
+            except (OSError, ValueError) as exc:
+                temporary.unlink(missing_ok=True)
+                flash(f'Photo could not be rotated: {exc}', 'error')
+                return redirect(url_for('manage_photos', product_id=ph['product_id']))
             conn.execute('UPDATE photos SET updated_at=? WHERE id=?', (datetime.now().isoformat(timespec='microseconds'), photo_id))
             log(conn, 'Photo', f"Photo rotated 90 degrees for product #{ph['product_id']}", ph['product_id'])
             product_id = ph['product_id']
