@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.10 — Existing-account photo edit fix
+
+- Add the missing `photos.updated_at` migration to every account-specific inventory database.
+- Prevent Rotate 90°, crop and reset from failing after the image file has already been changed.
+- Restore immediate cache refresh for Manage Photos, product galleries and inventory thumbnails after an edit.
+
 ## 0.6.9 — Tenant-path rotation fix
 
 - Fix the remaining Rotate 90° server error when replacing the completed temporary image through tenant-aware photo storage.

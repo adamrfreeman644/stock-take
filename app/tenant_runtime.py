@@ -22,6 +22,13 @@ def configure(app, server, tenant):
         with server.db() as conn:
             ensure_column(conn, 'products', 'archived_at', 'TEXT')
             ensure_column(conn, 'photos', 'original_filename', 'TEXT')
+            # Photo edits use this value as the browser cache key.  Existing
+            # tenant databases pre-date the column, even though the legacy
+            # single-account database is migrated by features_v010.init_schema.
+            # Without the tenant migration the image file is changed first and
+            # the following UPDATE fails, leaving the user with an error page
+            # and stale thumbnails.
+            ensure_column(conn, 'photos', 'updated_at', 'TEXT')
             conn.executescript('''
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
