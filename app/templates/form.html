@@ -8,7 +8,7 @@
 {% for field in product_fields %}
   {% if field.kind == 'core' %}
     {% if field.field_key == 'barcode' %}
-      {% if not product or duplicate_mode %}<label>First item barcode *<input id="barcode" name="barcode" required autocomplete="off" placeholder="Scan the barcode already stuck to this item"></label><div class="flash info">This creates the product and assigns its first physical item barcode. Add more item barcodes from the product page afterwards.</div>{% endif %}
+      {% if not product or duplicate_mode %}<label>First item barcode *<input id="barcode" name="barcode" required autocomplete="off" value="{{ request.args.get('barcode', '') if not product else '' }}" placeholder="Scan the barcode already stuck to this item"></label><div class="flash info">This creates the product and assigns its first physical item barcode. Add more item barcodes from the product page afterwards.</div>{% endif %}
     {% elif field.field_key == 'item' %}
       <label>Item *<input id="item" name="item" required value="{{ product.item if product else '' }}" placeholder="Cushion, pencil case, blanket…"></label>
     {% elif field.field_key == 'main_colour' %}
