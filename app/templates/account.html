@@ -35,6 +35,15 @@
       <p class="muted">Authentik is not currently active for this installation. The local owner login remains available during the migration/rollback period.</p>
       {% endif %}
     </section>
+    <section class="panel account-panel">
+      <h2>Photo maintenance</h2>
+      <p>Use this if product images or rotated photos still show an old thumbnail.</p>
+      <form method="post" action="{{ url_for('rebuild_photo_thumbnails') }}" onsubmit="return confirm('Rebuild every cached thumbnail? Original and edited photos will not be changed.')">
+        <input type="hidden" name="confirm" value="REBUILD">
+        <button class="btn" type="submit">Rebuild Photo Thumbnails</button>
+      </form>
+      <p class="muted">Only generated thumbnail files are cleared. They rebuild automatically when displayed.</p>
+    </section>
   </div>
   <section class="panel account-panel">
     <h2>Account isolation</h2>
