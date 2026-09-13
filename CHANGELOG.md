@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.4 — Bandwidth-saving photo thumbnails
+
+- Serve cached 480 px thumbnails in both inventory card and table views instead of downloading full-resolution photos.
+- Serve separate 160 px thumbnail files in the product photo selector while keeping the main listing photo full resolution.
+- Generate thumbnails automatically on first use for both existing and newly uploaded photos.
+- Refresh cached thumbnails automatically after a source photo is cropped or otherwise changed.
+- Preserve full-resolution originals for product detail viewing and downloads.
+
 ## 0.3.9 — All product fields and toggle switches
 
 - Show every Add/Edit Product field on the Inventory Fields settings page, not just recently added optional fields.
