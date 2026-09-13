@@ -3,6 +3,7 @@ import os
 import shutil
 import sqlite3
 import time
+from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -82,6 +83,61 @@ def next_job(account_id):
 
 def result_json(**kwargs):
     return json.dumps(kwargs, separators=(',', ':'))
+
+
+def _normalise_job_photo_order(conn, job_id):
+    """Ensure photos added by this shoot job are ordered oldest-to-newest per product.
+
+    The card/icon uses the first photo by sort_order, so this makes the first photo
+    taken during an item's scan window the primary image, followed by photo 2, 3, etc.
+    Existing photos that pre-date the shoot keep their relative order and shoot photos
+    are appended after them.
+    """
+    rows = conn.execute(
+        '''SELECT ph.id, ph.product_id, ph.sort_order, i.result_json, i.id AS upload_item_id
+           FROM photos ph
+           JOIN photo_upload_items i ON ph.filename LIKE ('p' || ph.product_id || '_shoot' || ? || '_' || i.id || '.%')
+           WHERE i.job_id=? AND i.status='Assigned'
+           ORDER BY ph.product_id, ph.id''',
+        (job_id, job_id),
+    ).fetchall()
+
+    grouped = defaultdict(list)
+    for row in rows:
+        taken = None
+        try:
+            payload = json.loads(row['result_json'] or '{}')
+            raw_taken = payload.get('taken')
+            if raw_taken:
+                taken = datetime.fromisoformat(raw_taken)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+        grouped[int(row['product_id'])].append((taken, int(row['upload_item_id']), int(row['id'])))
+
+    for product_id, photo_rows in grouped.items():
+        # Keep any non-shoot photos first and append this shoot's images in capture order.
+        job_photo_ids = [photo_id for _, _, photo_id in photo_rows]
+        placeholders = ','.join('?' for _ in job_photo_ids)
+        params = [product_id] + job_photo_ids
+        base_count = conn.execute(
+            f'SELECT COUNT(*) AS n FROM photos WHERE product_id=? AND id NOT IN ({placeholders})',
+            params,
+        ).fetchone()['n'] if job_photo_ids else 0
+
+        ordered = sorted(
+            photo_rows,
+            key=lambda row: (row[0] is None, row[0] or datetime.max, row[1], row[2]),
+        )
+        for offset, (_, _, photo_id) in enumerate(ordered, start=int(base_count) + 1):
+            conn.execute('UPDATE photos SET sort_order=? WHERE id=?', (offset, photo_id))
+
+        # Compact all sort_order values so the first row is always the primary/icon photo.
+        compact = conn.execute(
+            'SELECT id FROM photos WHERE product_id=? ORDER BY sort_order,id',
+            (product_id,),
+        ).fetchall()
+        for order, row in enumerate(compact, start=1):
+            conn.execute('UPDATE photos SET sort_order=? WHERE id=?', (order, row['id']))
 
 
 def process_job(account_id, job_id):
@@ -182,7 +238,6 @@ def process_job(account_id, job_id):
             continue
 
         if target['product_id'] is None and target.get('pending_scan_id'):
-            # The product may have been created after this job loaded its scan markers.
             with connect(db_path) as conn:
                 resolved = conn.execute('''SELECT ps.resolved_product_id,p.item
                                            FROM photo_shoot_pending_scans ps
@@ -194,43 +249,16 @@ def process_job(account_id, job_id):
 
         if target['product_id'] is None:
             with connect(db_path) as conn:
-                existing = conn.execute(
-                    'SELECT 1 FROM photo_pending_assets WHERE upload_item_id=? LIMIT 1',
-                    (item['id'],),
-                ).fetchone()
+                existing = conn.execute('SELECT 1 FROM photo_pending_assets WHERE upload_item_id=? LIMIT 1', (item['id'],)).fetchone()
                 if not existing:
-                    conn.execute(
-                        '''INSERT INTO photo_pending_assets
+                    conn.execute('''INSERT INTO photo_pending_assets
                            (pending_scan_id,barcode,job_id,upload_item_id,staged_name,original_name,created_at)
                            VALUES(?,?,?,?,?,?,?)''',
-                        (
-                            target['pending_scan_id'],
-                            target['inventory_id'],
-                            job_id,
-                            item['id'],
-                            item['staged_name'],
-                            item['original_name'],
-                            datetime.now().isoformat(timespec='seconds'),
-                        ),
-                    )
-                conn.execute(
-                    "UPDATE photo_upload_items SET status='PendingProduct',result_json=? WHERE id=?",
-                    (
-                        result_json(
-                            inventory_id=target['inventory_id'],
-                            item='Pending product',
-                            pending_product=True,
-                            taken=taken.isoformat(timespec='seconds'),
-                            timestamp_source=source,
-                        ),
-                        item['id'],
-                    ),
-                )
-                conn.execute(
-                    'UPDATE photo_upload_jobs SET processed_files=processed_files+1 WHERE id=?',
-                    (job_id,),
-                )
-            # Intentionally leave the staged file in place until this barcode is attached to a product.
+                        (target['pending_scan_id'], target['inventory_id'], job_id, item['id'], item['staged_name'], item['original_name'], datetime.now().isoformat(timespec='seconds')))
+                conn.execute("UPDATE photo_upload_items SET status='PendingProduct',result_json=? WHERE id=?",
+                    (result_json(inventory_id=target['inventory_id'], item='Pending product', pending_product=True,
+                                 taken=taken.isoformat(timespec='seconds'), timestamp_source=source), item['id']))
+                conn.execute('UPDATE photo_upload_jobs SET processed_files=processed_files+1 WHERE id=?', (job_id,))
             continue
 
         filename = f"p{target['product_id']}_shoot{job_id}_{item['id']}.{ext}"
@@ -254,6 +282,7 @@ def process_job(account_id, job_id):
     with connect(db_path) as conn:
         remaining = conn.execute("SELECT COUNT(*) AS n FROM photo_upload_items WHERE job_id=? AND status='Staged'", (job_id,)).fetchone()['n']
         if remaining == 0:
+            _normalise_job_photo_order(conn, job_id)
             conn.execute("UPDATE photo_upload_jobs SET status='Complete',finished_at=? WHERE id=?",
                          (datetime.now().isoformat(timespec='seconds'), job_id))
 
