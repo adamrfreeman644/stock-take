@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.6 — Photoshoot history viewer and safe deletion
+
+- Open an ended shoot by tapping its Shoot number and show every scanned listed product with its assigned photo thumbnails.
+- Separate unlisted barcodes into an Unmatched items section with held thumbnails and a barcode-prefilled Create Product action.
+- Automatically attach held photos in capture order when the missing product is created.
+- Add a deliberately protected Discard action for genuinely unwanted unmatched photos.
+- Make the ENDED badge open a two-step delete confirmation requiring the exact shoot phrase and an explicit photo-preservation acknowledgement.
+- Remove deleted shoots from Recent Shoots without deleting assigned product photos or unmatched photos waiting to be claimed.
+
 ## 0.6.5 — Photo-order repair cleanup
 
 - Remove the one-time Repair Existing Photo Order button after existing Photoshoot imports have been corrected.
