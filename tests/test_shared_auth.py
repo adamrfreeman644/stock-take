@@ -1,4 +1,8 @@
 import pytest
+import sqlite3
+from types import SimpleNamespace
+
+from flask import Flask, session
 
 
 @pytest.fixture()
@@ -77,3 +81,58 @@ def test_popup_login_keeps_main_page_available():
     page = oidc._popup_page("/auth/start?next=/dashboard")
     assert "window.open" in page
     assert "inventory-auth-complete" in page
+
+
+def test_existing_tenant_photos_gain_cache_timestamp_column(tmp_path):
+    """Existing account databases must be migrated before photo edits run."""
+    from app.tenant_runtime import configure
+
+    database = tmp_path / "inventory.db"
+    with sqlite3.connect(database) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE products (
+                id INTEGER PRIMARY KEY,
+                item TEXT NOT NULL DEFAULT '',
+                price_pence INTEGER NOT NULL DEFAULT 0,
+                archived_at TEXT
+            );
+            CREATE TABLE photos (
+                id INTEGER PRIMARY KEY,
+                product_id INTEGER NOT NULL,
+                filename TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 1,
+                original_filename TEXT
+            );
+            CREATE TABLE item_barcodes (
+                id INTEGER PRIMARY KEY,
+                product_id INTEGER,
+                barcode TEXT,
+                state TEXT,
+                sold_at TEXT
+            );
+            """
+        )
+
+    def open_database():
+        connection = sqlite3.connect(database)
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    app = Flask(__name__)
+    app.secret_key = "test"
+    server = SimpleNamespace(db=open_database, VERSION="test")
+    tenant = SimpleNamespace(
+        account_backup_dir=lambda: tmp_path / "backups",
+        account_db_path=lambda: database,
+    )
+    (tmp_path / "backups").mkdir()
+
+    configure(app, server, tenant)
+    with app.test_request_context("/"):
+        session["account_id"] = 1
+        app.extensions["tenant_ensure_feature_schema"]()
+
+    with sqlite3.connect(database) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(photos)")}
+    assert "updated_at" in columns
