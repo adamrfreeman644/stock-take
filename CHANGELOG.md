@@ -7,6 +7,7 @@
 - Generate thumbnails automatically on first use for both existing and newly uploaded photos.
 - Refresh cached thumbnails automatically after a source photo is cropped or otherwise changed.
 - Preserve full-resolution originals for product detail viewing and downloads.
+- Add the Photo Shoot page button that safely repairs existing timestamp-backed reversed photo groups.
 
 ## 0.3.9 — All product fields and toggle switches
 
