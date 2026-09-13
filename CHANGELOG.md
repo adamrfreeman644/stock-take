@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.5 — Photo-order repair cleanup
+
+- Remove the one-time Repair Existing Photo Order button after existing Photoshoot imports have been corrected.
+- Keep automatic oldest-to-newest ordering enabled for every new Photoshoot upload.
+
 ## 0.6.4 — Bandwidth-saving photo thumbnails
 
 - Serve cached 480 px thumbnails in both inventory card and table views instead of downloading full-resolution photos.
