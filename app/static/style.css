@@ -18,3 +18,6 @@
 
 /* Single inventory view/density menu */
 .combined-view-select{min-width:138px}.combined-view-select select{min-width:78px;padding-right:22px}@media(max-width:760px){.combined-view-select{min-width:132px}.combined-view-select select{min-width:76px;font-size:15px}}
+
+/* Static-label View menu */
+.view-menu-wrap{position:relative}.view-menu-button{min-height:44px;padding:0 15px;border:1px solid #d7dce2;border-radius:12px;background:#fff;color:inherit;font:inherit;font-weight:800;display:flex;align-items:center;gap:7px;cursor:pointer}.view-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:1000;min-width:140px;padding:6px;background:#fff;border:1px solid #d7dce2;border-radius:12px;box-shadow:0 10px 30px #0002}.view-menu[hidden]{display:none}.view-menu button{display:block;width:100%;border:0;background:transparent;color:#1f2937;text-align:left;padding:10px 12px;border-radius:8px;font:inherit;font-weight:700;cursor:pointer}.view-menu button:hover,.view-menu button:focus{background:#f1f5f9}@media(max-width:760px){.view-menu-button{min-height:40px;padding:0 12px}.compact-view-controls{margin-left:auto}}
