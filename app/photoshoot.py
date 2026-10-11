@@ -123,6 +123,10 @@ def init_tables():
         session_columns = {row['name'] for row in conn.execute('PRAGMA table_info(photo_shoot_sessions)').fetchall()}
         if 'deleted_at' not in session_columns:
             conn.execute('ALTER TABLE photo_shoot_sessions ADD COLUMN deleted_at TEXT')
+        if 'scanner_token' not in session_columns:
+            conn.execute('ALTER TABLE photo_shoot_sessions ADD COLUMN scanner_token TEXT')
+        if 'scanner_claimed_at' not in session_columns:
+            conn.execute('ALTER TABLE photo_shoot_sessions ADD COLUMN scanner_claimed_at TEXT')
         item_columns = {row['name'] for row in conn.execute('PRAGMA table_info(photo_upload_items)').fetchall()}
         if 'content_hash' not in item_columns:
             conn.execute('ALTER TABLE photo_upload_items ADD COLUMN content_hash TEXT')
@@ -607,16 +611,48 @@ def start_session():
     return redirect(url_for('photoshoot.photo_shoot'))
 
 
+@bp.post('/scanner/claim')
+def claim_scanner():
+    init_tables()
+    token = request.form.get('scanner_token', '').strip()[:120]
+    if not token:
+        return jsonify({'ok': False, 'error': 'Scanner identity is missing.'}), 400
+    with db() as conn:
+        shoot = conn.execute("SELECT * FROM photo_shoot_sessions WHERE status='Active' ORDER BY id DESC LIMIT 1").fetchone()
+        if not shoot:
+            return jsonify({'ok': False, 'error': 'There is no active Photo Shoot.'}), 409
+        if shoot['scanner_token'] and shoot['scanner_token'] != token:
+            return jsonify({'ok': False, 'error': 'This Photo Shoot already has an active scanner.'}), 409
+        conn.execute('UPDATE photo_shoot_sessions SET scanner_token=?,scanner_claimed_at=? WHERE id=?',
+                     (token, datetime.now().isoformat(timespec='seconds'), shoot['id']))
+    return jsonify({'ok': True, 'session_id': int(shoot['id'])})
+
+
+@bp.post('/scanner/release')
+def release_scanner():
+    init_tables()
+    token = request.form.get('scanner_token', '').strip()[:120]
+    with db() as conn:
+        shoot = conn.execute("SELECT * FROM photo_shoot_sessions WHERE status='Active' ORDER BY id DESC LIMIT 1").fetchone()
+        if shoot and token and shoot['scanner_token'] == token:
+            conn.execute('UPDATE photo_shoot_sessions SET scanner_token=NULL,scanner_claimed_at=NULL WHERE id=?', (shoot['id'],))
+    return jsonify({'ok': True})
+
+
 @bp.post('/scan')
 def scan_product():
     init_tables()
     code = request.form.get('barcode', '').strip()
+    scanner_token = request.form.get('scanner_token', '').strip()[:120]
     if not code:
         return redirect(url_for('photoshoot.photo_shoot'))
     with db() as conn:
         session = conn.execute("SELECT * FROM photo_shoot_sessions WHERE status='Active' ORDER BY id DESC LIMIT 1").fetchone()
         if not session:
             flash('Start a photo shoot first.', 'error')
+            return redirect(url_for('photoshoot.photo_shoot'))
+        if not scanner_token or session['scanner_token'] != scanner_token:
+            flash('This device is not the active Photo Shoot scanner.', 'error')
             return redirect(url_for('photoshoot.photo_shoot'))
         product = conn.execute('''SELECT p.* FROM item_barcodes ib JOIN products p ON p.id=ib.product_id
                                   WHERE ib.barcode=? LIMIT 1''', (code,)).fetchone()
@@ -638,7 +674,7 @@ def end_session():
     init_tables()
     now = datetime.now().isoformat(timespec='seconds')
     with db() as conn:
-        conn.execute("UPDATE photo_shoot_sessions SET status='Ended', ended_at=? WHERE status='Active'", (now,))
+        conn.execute("UPDATE photo_shoot_sessions SET status='Ended', ended_at=?, scanner_token=NULL, scanner_claimed_at=NULL WHERE status='Active'", (now,))
     flash('Photo shoot ended. Select the batch and StockTake will stage it safely before assigning in the background.', 'success')
     return redirect(url_for('photoshoot.photo_shoot'))
 
