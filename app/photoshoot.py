@@ -48,6 +48,7 @@ def init_tables():
             session_id INTEGER NOT NULL,
             product_id INTEGER NOT NULL,
             scanned_at TEXT NOT NULL,
+            scanned_barcode TEXT,
             FOREIGN KEY(session_id) REFERENCES photo_shoot_sessions(id),
             FOREIGN KEY(product_id) REFERENCES products(id)
         );
@@ -113,6 +114,12 @@ def init_tables():
         CREATE INDEX IF NOT EXISTS idx_photo_jobs_status ON photo_upload_jobs(status,id);
         CREATE INDEX IF NOT EXISTS idx_photo_items_job ON photo_upload_items(job_id,order_index,id);
         ''')
+        scan_columns = {row['name'] for row in conn.execute('PRAGMA table_info(photo_shoot_scans)').fetchall()}
+        if 'scanned_barcode' not in scan_columns:
+            conn.execute('ALTER TABLE photo_shoot_scans ADD COLUMN scanned_barcode TEXT')
+        photo_columns = {row['name'] for row in conn.execute('PRAGMA table_info(photos)').fetchall()}
+        if 'source_barcode' not in photo_columns:
+            conn.execute('ALTER TABLE photos ADD COLUMN source_barcode TEXT')
         session_columns = {row['name'] for row in conn.execute('PRAGMA table_info(photo_shoot_sessions)').fetchall()}
         if 'deleted_at' not in session_columns:
             conn.execute('ALTER TABLE photo_shoot_sessions ADD COLUMN deleted_at TEXT')
@@ -312,7 +319,7 @@ def photo_shoot():
         current = None
         if session:
             known = conn.execute('''SELECT s.scanned_at,p.item,s.product_id,
-                                    (SELECT ib.barcode FROM item_barcodes ib WHERE ib.product_id=p.id ORDER BY ib.id LIMIT 1) AS inventory_id,
+                                    COALESCE(s.scanned_barcode,(SELECT ib.barcode FROM item_barcodes ib WHERE ib.product_id=p.id ORDER BY ib.id LIMIT 1)) AS inventory_id,
                                     0 AS pending
                                     FROM photo_shoot_scans s JOIN products p ON p.id=s.product_id
                                     WHERE s.session_id=?''', (session['id'],)).fetchall()
@@ -369,8 +376,8 @@ def session_detail(session_id):
         matched = {}
         scan_rows = conn.execute(
             '''SELECT s.product_id,s.scanned_at,p.item,
-                      (SELECT ib.barcode FROM item_barcodes ib
-                       WHERE ib.product_id=p.id ORDER BY ib.id LIMIT 1) AS barcode,
+                      COALESCE(s.scanned_barcode,(SELECT ib.barcode FROM item_barcodes ib
+                       WHERE ib.product_id=p.id ORDER BY ib.id LIMIT 1)) AS barcode,
                       s.id AS marker_id
                FROM photo_shoot_scans s
                JOIN products p ON p.id=s.product_id
@@ -621,8 +628,8 @@ def scan_product():
             )
             flash(f'Barcode {code} is not in stock yet. Its photo window is being held until that product is created.', 'info')
             return redirect(url_for('photoshoot.photo_shoot'))
-        conn.execute('INSERT INTO photo_shoot_scans(session_id,product_id,scanned_at) VALUES(?,?,?)',
-                     (session['id'], product['id'], now))
+        conn.execute('INSERT INTO photo_shoot_scans(session_id,product_id,scanned_at,scanned_barcode) VALUES(?,?,?,?)',
+                     (session['id'], product['id'], now, code))
     return redirect(url_for('photoshoot.photo_shoot'))
 
 
