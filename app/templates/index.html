@@ -2,11 +2,38 @@
 {% block content %}
 <section class="toolbar"><div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn primary" href="{{ url_for('new_product') }}">+ Add Product</a><a class="btn" href="{{ url_for('merge_duplicates_global') }}">Merge Duplicates</a></div><div class="view-toggle"><a class="btn {{ 'active' if view == 'table' }}" href="{{ url_for('index', view='table', q=q, status=status) }}">Table</a><a class="btn {{ 'active' if view != 'table' }}" href="{{ url_for('index', view='cards', q=q, status=status) }}">Cards</a></div></section>
 <form class="filters" method="get"><input type="hidden" name="view" value="{{ view }}"><input name="q" value="{{ q }}" placeholder="Search item, colour, pattern, barcode…"><select name="status" onchange="this.form.submit()"><option value="">All status</option><option value="Available" {{ 'selected' if status == 'Available' }}>Available</option><option value="Sold" {{ 'selected' if status == 'Sold' }}>Sold</option></select><button class="btn" type="submit">Search</button></form>
-<div class="summary"><span>{{ available }} products available</span><span>{{ sold }} sold out</span><span>{{ products|length }} shown</span></div>
+<div class="summary"><span>{{ available }} products available</span><span>{{ sold }} sold out</span><span>{{ products|length }} shown</span>{% if view != 'table' %}<div class="tile-width-control" aria-label="Tiles across"><span>Tiles wide</span><div class="tile-width-buttons">{% for n in range(1,6) %}<button class="tile-width-btn" type="button" data-tile-width="{{ n }}" aria-label="{{ n }} tiles wide">{{ n }}</button>{% endfor %}</div></div>{% endif %}</div>
 {% if not products %}<div class="empty"><h2>No products yet</h2><p>Add the first item or change your filters.</p></div>
 {% elif view == 'table' %}
 <div class="table-wrap"><table><thead><tr>{% for col in table_columns %}<th>{{ col.label }}</th>{% endfor %}</tr></thead><tbody>{% for p in products %}<tr onclick="location.href='{{ url_for('product_detail', product_id=p.id) }}'">{% for col in table_columns %}{% if col.field_key == 'photo' %}<td>{% if p.main_photo %}<img class="thumb" src="{{ url_for('thumbnail_file', size='inventory', filename=p.main_photo, v=p.main_photo_updated or '') }}">{% else %}<div class="thumb placeholder">—</div>{% endif %}</td>{% elif col.field_key == 'item' %}<td><strong>{{ p.item }}</strong></td>{% elif col.field_key == 'main_colour' %}<td>{{ p.main_colour }}</td>{% elif col.field_key == 'secondary_colour' %}<td>{{ p.secondary_colour }}</td>{% elif col.field_key == 'pattern' %}<td>{{ p.pattern }}</td>{% elif col.field_key == 'price' %}<td>{{ p.price_pence|money }}</td>{% elif col.field_key == 'quantity' %}<td><strong>{{ p.quantity }}</strong></td>{% elif col.field_key == 'barcodes' %}<td class="barcode">{% if p.all_barcodes %}<div class="barcode-stack">{% for code in p.all_barcodes.split('||') %}<span>{{ code }}</span>{% endfor %}</div>{% else %}—{% endif %}</td>{% elif col.field_key == 'status' %}<td><span class="status {{ p.status|lower }}">{{ p.status }}</span></td>{% endif %}{% endfor %}</tr>{% endfor %}</tbody></table></div>
 {% else %}
-<div class="cards">{% for p in products %}<a class="card" href="{{ url_for('product_detail', product_id=p.id) }}"><div class="card-photo">{% if p.main_photo %}<img src="{{ url_for('thumbnail_file', size='inventory', filename=p.main_photo, v=p.main_photo_updated or '') }}">{% else %}<span>No photo</span>{% endif %}</div><div class="card-body"><div class="card-head"><h3>{{ p.item }}</h3><span class="status {{ p.status|lower }}">{{ p.status }}</span></div><div class="muted">{{ p.pattern or 'No pattern' }}</div><div>{{ p.main_colour or '—' }}{% if p.secondary_colour %} / {{ p.secondary_colour }}{% endif %}</div><div class="price">{{ p.price_pence|money }}</div><div><strong>{{ p.quantity }} available</strong></div>{% if p.first_barcode %}<div class="barcode muted">{{ p.first_barcode }}…</div>{% endif %}</div></a>{% endfor %}</div>
+<div class="cards" id="inventoryCards">{% for p in products %}<a class="card" href="{{ url_for('product_detail', product_id=p.id) }}"><div class="card-photo">{% if p.main_photo %}<img src="{{ url_for('thumbnail_file', size='inventory', filename=p.main_photo, v=p.main_photo_updated or '') }}">{% else %}<span>No photo</span>{% endif %}</div><div class="card-body"><div class="card-head"><h3>{{ p.item }}</h3><span class="status {{ p.status|lower }}">{{ p.status }}</span></div><div class="muted">{{ p.pattern or 'No pattern' }}</div><div>{{ p.main_colour or '—' }}{% if p.secondary_colour %} / {{ p.secondary_colour }}{% endif %}</div><div class="price">{{ p.price_pence|money }}</div><div><strong>{{ p.quantity }} available</strong></div>{% if p.first_barcode %}<div class="barcode muted">{{ p.first_barcode }}…</div>{% endif %}</div></a>{% endfor %}</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if view != 'table' %}
+<script>
+(()=>{
+  const cards=document.getElementById('inventoryCards');
+  const buttons=[...document.querySelectorAll('[data-tile-width]')];
+  if(!cards||!buttons.length)return;
+  const key='stocktake.inventory.tilesWide';
+  const apply=value=>{
+    const n=Math.max(1,Math.min(5,Number(value)||2));
+    cards.style.setProperty('--inventory-columns',String(n));
+    buttons.forEach(button=>{
+      const active=Number(button.dataset.tileWidth)===n;
+      button.classList.toggle('active',active);
+      button.setAttribute('aria-pressed',String(active));
+    });
+    try{localStorage.setItem(key,String(n))}catch(_err){}
+  };
+  let saved;
+  try{saved=localStorage.getItem(key)}catch(_err){}
+  apply(saved||((window.innerWidth<=760)?2:4));
+  buttons.forEach(button=>button.addEventListener('click',()=>apply(button.dataset.tileWidth)));
+})();
+</script>
 {% endif %}
 {% endblock %}
