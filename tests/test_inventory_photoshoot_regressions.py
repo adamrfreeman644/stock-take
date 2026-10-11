@@ -57,3 +57,50 @@ def test_exact_content_hash_duplicate_protection_remains_enabled():
 def test_tenant_schema_has_general_optional_source_barcode():
     source = Path("app/tenant_runtime.py").read_text()
     assert "ensure_column(conn, 'photos', 'source_barcode', 'TEXT')" in source
+
+
+def test_scanner_has_expiring_single_tab_lease():
+    source = Path("app/photoshoot.py").read_text()
+    template = Path("app/templates/photoshoot.html").read_text()
+    assert "SCANNER_LEASE_SECONDS = 45" in source
+    assert "scanner_last_seen" in source
+    assert "/scanner/heartbeat" in source
+    assert "/scanner/status" in source
+    assert "sessionStorage.getItem(scannerKey)" in template
+    assert "localStorage.getItem(scannerKey)" not in template
+    assert "setInterval" in template and "/photo-shoot/scanner/heartbeat" in template
+
+
+def test_scanner_does_not_blindly_claim_on_every_page_load():
+    source = Path("app/templates/photoshoot.html").read_text()
+    load_section = source[source.index("window.addEventListener('load'"):source.index("document.addEventListener('visibilitychange'")]
+    assert "/photo-shoot/scanner/status" in load_section
+    assert "if(s.owned)showScanner()" in load_section
+
+
+def test_interrupted_uploads_are_adopted_by_retry_batch():
+    source = Path("app/photoshoot.py").read_text()
+    assert "duplicate['job_status'] == 'Uploading'" in source
+    assert "UPDATE photo_upload_jobs SET batch_token=?" in source
+    assert "'recovered': True" in source
+
+
+def test_upload_ui_lists_individual_photo_failures():
+    source = Path("app/templates/photoshoot.html").read_text()
+    assert "data-upload-errors" in source
+    assert "Photos needing attention" in source
+    assert "failures.push" in source
+
+
+def test_mobile_modals_use_dynamic_viewport_fallback():
+    source = Path("app/templates/photoshoot.html").read_text()
+    assert "max-height:94vh;max-height:94dvh" in source
+    assert "max-height:88vh;max-height:88dvh" in source
+
+
+def test_heic_backend_support_is_installed():
+    requirements = Path("requirements.txt").read_text().lower()
+    source = Path("app/photoshoot.py").read_text()
+    assert "pillow-heif" in requirements
+    assert "register_heif_opener()" in source
+    assert "'heic'" in source and "'heif'" in source
