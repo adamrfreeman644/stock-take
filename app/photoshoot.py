@@ -890,7 +890,26 @@ def auto_stage_file():
             with db() as conn:
                 conn.execute('UPDATE photo_upload_jobs SET batch_token=? WHERE id=?', (token, duplicate['job_id']))
             return jsonify({'ok': True, 'duplicate': True, 'recovered': True, 'job_id': int(duplicate['job_id']), 'session_id': int(shoot['id']), 'taken': taken.isoformat(timespec='seconds')})
-        return jsonify({'ok': True, 'duplicate': True, 'skipped': True, 'session_id': int(shoot['id']), 'taken': taken.isoformat(timespec='seconds')})
+        with db() as conn:
+            location = {'kind': 'processed', 'label': 'Already processed'}
+            if duplicate['status'] == 'Assigned':
+                payload = _result_data(conn.execute('SELECT result_json FROM photo_upload_items WHERE id=?', (duplicate['id'],)).fetchone()['result_json'])
+                barcode = str(payload.get('inventory_id') or '')
+                product = conn.execute("""SELECT p.id,p.item FROM products p
+                                          JOIN item_barcodes ib ON ib.product_id=p.id
+                                          WHERE ib.barcode=? LIMIT 1""", (barcode,)).fetchone() if barcode else None
+                if product:
+                    location = {'kind': 'listing', 'label': 'Already in use on a listing',
+                                'product_id': int(product['id']), 'product_name': product['item'],
+                                'barcode': barcode, 'url': url_for('product_detail', product_id=product['id'])}
+            elif duplicate['status'] == 'PendingProduct':
+                pending_asset = conn.execute('SELECT barcode FROM photo_pending_assets WHERE upload_item_id=? AND product_id IS NULL LIMIT 1', (duplicate['id'],)).fetchone()
+                if pending_asset:
+                    location = {'kind': 'pending', 'label': 'Already held for a pending barcode', 'barcode': pending_asset['barcode']}
+            elif duplicate['status'] == 'Staged':
+                location = {'kind': 'staged', 'label': 'Already staged for processing'}
+            return jsonify({'ok': True, 'duplicate': True, 'skipped': True, 'session_id': int(shoot['id']),
+                            'taken': taken.isoformat(timespec='seconds'), 'location': location})
 
     suffix = Path(original).suffix.lower()
     staged_name = f'{order_index:06d}-{uuid.uuid4().hex}{suffix}'
