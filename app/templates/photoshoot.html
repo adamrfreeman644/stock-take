@@ -60,7 +60,7 @@
       <label class="btn primary">Choose Photos<input type="file" accept="image/*,.heic,.heif" multiple required data-global-photo-input></label>
       <div class="muted" data-global-photo-summary>No photos selected</div>
       <button class="btn upload-assign-button" type="submit" data-upload-assign-button><span data-upload-assign-label>Stage &amp; Assign</span></button>
-      <div class="upload-errors" data-upload-errors hidden aria-live="polite"></div><div class="upload-progress" data-global-progress><div class="upload-detail" data-global-progress-label>Preparing upload…</div><div class="upload-bar"><span data-global-progress-bar></span></div><div class="upload-detail" data-global-progress-detail></div></div><div class="upload-safe-banner" data-upload-safe-banner role="status" aria-live="assertive"><div class="upload-safe-title">✓ UPLOAD COMPLETE</div><div class="upload-safe-sub">SAFE TO LEAVE THIS PAGE</div><div class="upload-safe-background">Photo assignment is continuing in the background.</div></div>
+      <div class="duplicate-results" data-duplicate-results aria-live="polite"></div><div class="upload-errors" data-upload-errors hidden aria-live="polite"></div><div class="upload-progress" data-global-progress><div class="upload-detail" data-global-progress-label>Preparing upload…</div><div class="upload-bar"><span data-global-progress-bar></span></div><div class="upload-detail" data-global-progress-detail></div></div><div class="upload-safe-banner" data-upload-safe-banner role="status" aria-live="assertive"><div class="upload-safe-title">✓ UPLOAD COMPLETE</div><div class="upload-safe-sub">SAFE TO LEAVE THIS PAGE</div><div class="upload-safe-background">Photo assignment is continuing in the background.</div></div>
     </form>
   </section>
   {% if recent %}
@@ -134,19 +134,19 @@ function hideUploadToast(){uploadToast.classList.remove('active')}
 
 const globalForm=document.querySelector('[data-global-batch-form]');
 if(globalForm){
-  const errorsBox=globalForm.querySelector('[data-upload-errors]'),input=globalForm.querySelector('[data-global-photo-input]'),summary=globalForm.querySelector('[data-global-photo-summary]'),progress=globalForm.querySelector('[data-global-progress]'),label=globalForm.querySelector('[data-global-progress-label]'),detail=globalForm.querySelector('[data-global-progress-detail]'),bar=globalForm.querySelector('[data-global-progress-bar]'),safeBanner=globalForm.querySelector('[data-upload-safe-banner]'),assignLabel=globalForm.querySelector('[data-upload-assign-label]');
+  const duplicateBox=globalForm.querySelector('[data-duplicate-results]'),errorsBox=globalForm.querySelector('[data-upload-errors]'),input=globalForm.querySelector('[data-global-photo-input]'),summary=globalForm.querySelector('[data-global-photo-summary]'),progress=globalForm.querySelector('[data-global-progress]'),label=globalForm.querySelector('[data-global-progress-label]'),detail=globalForm.querySelector('[data-global-progress-detail]'),bar=globalForm.querySelector('[data-global-progress-bar]'),safeBanner=globalForm.querySelector('[data-upload-safe-banner]'),assignLabel=globalForm.querySelector('[data-upload-assign-label]');
   input.addEventListener('change',()=>{const files=[...(input.files||[])];summary.textContent=files.length?`${files.length} photo${files.length===1?'':'s'} selected`:'No photos selected'});
   globalForm.addEventListener('submit',async e=>{
     e.preventDefault();const files=[...(input.files||[])];if(!files.length)return;
     globalForm.classList.add('busy');if(assignLabel)assignLabel.textContent='Staging…';progress.classList.add('active');safeBanner.classList.remove('active');bar.style.width='0%';showUploadToast(0,files.length);
-    const token=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2));let skipped=0,unmatched=0,accepted=0,recovered=0;const failures=[];if(errorsBox){errorsBox.hidden=true;errorsBox.innerHTML=''}
+    const token=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2));let skipped=0,unmatched=0,accepted=0,recovered=0;const failures=[],duplicates=[];if(errorsBox){errorsBox.hidden=true;errorsBox.innerHTML=''}if(duplicateBox){duplicateBox.classList.remove('active');duplicateBox.innerHTML=''}
     try{
       for(let i=0;i<files.length;i++){
         const file=files[i];label.textContent=`Reading photo ${i+1} of ${files.length}`;showUploadToast(i,files.length,`Matching ${file.name} by date/time`);
         const body=new FormData();body.append('photo',file,file.name);body.append('order_index',String(i));body.append('modified_ms',String(file.lastModified||0));body.append('device_tz_offset',String(new Date().getTimezoneOffset()));body.append('batch_token',token);
         const response=await fetch('/photo-shoot/upload/auto-file',{method:'POST',body});const data=await response.json();
-        if(response.ok&&data.ok){if(data.recovered){recovered++;accepted++;}else if(data.duplicate)skipped++;else accepted++;}else{unmatched++;failures.push(data.error||`${file.name}: upload rejected`);}
-        bar.style.width=`${Math.round(((i+1)/files.length)*100)}%`;showUploadToast(i+1,files.length);if(errorsBox&&failures.length){errorsBox.hidden=false;errorsBox.innerHTML='<strong>Photos needing attention</strong><ul>'+failures.map(x=>'<li>'+escapeHtml(x)+'</li>').join('')+'</ul>'}
+        if(response.ok&&data.ok){if(data.recovered){recovered++;accepted++;}else if(data.duplicate){skipped++;duplicates.push(file)}else accepted++;}else{unmatched++;failures.push(data.error||`${file.name}: upload rejected`);}
+        if(duplicateBox&&duplicates.length){duplicateBox.classList.add('active');duplicateBox.innerHTML='<div class="duplicate-results-title">⚠ '+duplicates.length+' DUPLICATE'+(duplicates.length===1?'':'S')+' SKIPPED</div><div class="duplicate-results-grid">'+duplicates.map(file=>'<div class="duplicate-result"><img src="'+URL.createObjectURL(file)+'" alt="Duplicate photo"><span>'+escapeHtml(file.name)+'</span></div>').join('')+'</div>'}bar.style.width=`${Math.round(((i+1)/files.length)*100)}%`;showUploadToast(i+1,files.length);if(errorsBox&&failures.length){errorsBox.hidden=false;errorsBox.innerHTML='<strong>Photos needing attention</strong><ul>'+failures.map(x=>'<li>'+escapeHtml(x)+'</li>').join('')+'</ul>'}
       }
       if(accepted){
         const finish=new FormData();finish.append('batch_token',token);const result=await postForm('/photo-shoot/upload/auto-finish',finish);
@@ -155,7 +155,7 @@ if(globalForm){
       }else{
         label.textContent='Upload complete — safe to leave';detail.textContent=`${skipped} duplicate${skipped===1?'':'s'} skipped · ${unmatched} need attention`;safeBanner.classList.add('active');
       }
-      uploadToastMain.textContent='✓ UPLOAD COMPLETE — SAFE TO LEAVE';uploadToastSub.textContent='Photos are on the server. Assignment continues in the background.';setTimeout(hideUploadToast,12000);
+      uploadToastMain.textContent=skipped?`✓ COMPLETE — ${skipped} DUPLICATE${skipped===1?'':'S'} SKIPPED`:'✓ UPLOAD COMPLETE — SAFE TO LEAVE';uploadToastSub.textContent=skipped?`${files.length} selected · ${accepted} uploaded · ${skipped} duplicates skipped`:'Photos are on the server. Assignment continues in the background.';setTimeout(hideUploadToast,12000);
     }catch(err){uploadToastMain.textContent='Photo upload stopped';uploadToastSub.textContent=err.message;label.textContent='Upload stopped';detail.textContent=err.message;setTimeout(hideUploadToast,8000)}
     finally{globalForm.classList.remove('busy');if(assignLabel)assignLabel.textContent='Stage & Assign'}
   });
