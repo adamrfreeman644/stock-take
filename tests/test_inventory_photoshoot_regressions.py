@@ -26,10 +26,14 @@ def test_inventory_view_menu_keeps_static_view_label_and_all_choices():
 
 
 def test_photo_worker_does_not_assign_from_file_modified_timestamp():
-    source = Path("app/photo_worker.py").read_text()
-    assignment_section = source[source.index("taken = exif_taken_at(staged)"):]
+    worker = Path("app/photo_worker.py").read_text()
+    assignment_section = worker[worker.index("taken = exif_taken_at(staged)"):]
     assert "datetime.fromtimestamp(float(item['modified_ms'])" not in assignment_section
     assert "No readable camera Date Taken timestamp" in assignment_section
+    upload = Path("app/photoshoot.py").read_text()
+    auto_section = upload[upload.index("def auto_stage_file()"):upload.index("def auto_finish_upload()")]
+    assert "datetime.fromtimestamp(modified_ms" not in auto_section
+    assert "no original camera Date Taken metadata; not assigned" in auto_section
 
 
 def test_photoshoot_assignments_preserve_scanned_barcode():
