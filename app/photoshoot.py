@@ -114,6 +114,10 @@ def init_tables():
         session_columns = {row['name'] for row in conn.execute('PRAGMA table_info(photo_shoot_sessions)').fetchall()}
         if 'deleted_at' not in session_columns:
             conn.execute('ALTER TABLE photo_shoot_sessions ADD COLUMN deleted_at TEXT')
+        job_columns = {row['name'] for row in conn.execute('PRAGMA table_info(photo_upload_jobs)').fetchall()}
+        if 'batch_token' not in job_columns:
+            conn.execute('ALTER TABLE photo_upload_jobs ADD COLUMN batch_token TEXT')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_photo_jobs_batch ON photo_upload_jobs(batch_token,session_id)')
 
 
 def _staging_dir(job_id):
@@ -614,6 +618,148 @@ def end_session():
         conn.execute("UPDATE photo_shoot_sessions SET status='Ended', ended_at=? WHERE status='Active'", (now,))
     flash('Photo shoot ended. Select the batch and StockTake will stage it safely before assigning in the background.', 'success')
     return redirect(url_for('photoshoot.photo_shoot'))
+
+
+
+def _uploaded_taken_at(uploaded):
+    """Read the original camera timestamp without trusting the selected shoot."""
+    try:
+        uploaded.stream.seek(0)
+        with Image.open(uploaded.stream) as image:
+            exif = image.getexif()
+            candidates = []
+            try:
+                exif_ifd = exif.get_ifd(ExifTags.IFD.Exif)
+                candidates.extend([exif_ifd.get(36867), exif_ifd.get(36868)])
+            except Exception:
+                pass
+            tags = {ExifTags.TAGS.get(k, k): v for k, v in exif.items()} if exif else {}
+            candidates.extend([tags.get('DateTimeOriginal'), tags.get('DateTimeDigitized'), tags.get('DateTime')])
+            for raw in candidates:
+                if not raw:
+                    continue
+                for fmt in ('%Y:%m:%d %H:%M:%S', '%Y-%m-%d %H:%M:%S'):
+                    try:
+                        return datetime.strptime(str(raw), fmt), 'camera Date Taken'
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+    finally:
+        try:
+            uploaded.stream.seek(0)
+        except Exception:
+            pass
+    return None, None
+
+
+@bp.post('/upload/auto-file')
+def auto_stage_file():
+    """Stage one image into the shoot whose time window contains its capture time."""
+    init_tables()
+    uploaded = request.files.get('photo')
+    if not uploaded or not uploaded.filename:
+        return jsonify({'ok': False, 'error': 'No photo was supplied.'}), 400
+    original = secure_filename(uploaded.filename) or f'photo-{uuid.uuid4().hex}'
+    if '.' not in original or original.rsplit('.', 1)[1].lower() not in ALLOWED_EXTENSIONS:
+        return jsonify({'ok': False, 'error': f'{uploaded.filename}: unsupported image type'}), 400
+    token = ''.join(c for c in request.form.get('batch_token', '') if c.isalnum() or c in '-_')[:80]
+    if not token:
+        return jsonify({'ok': False, 'error': 'Upload batch is missing.'}), 400
+    try:
+        order_index = int(request.form.get('order_index', '0'))
+        modified_ms = float(request.form.get('modified_ms', '0') or 0)
+        device_offset = int(request.form.get('device_tz_offset', '0'))
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'Invalid upload metadata.'}), 400
+
+    taken, source = _uploaded_taken_at(uploaded)
+    server_offset = datetime.now().astimezone().utcoffset()
+    server_offset_minutes = int(server_offset.total_seconds() // 60) if server_offset else 0
+    if taken:
+        taken = taken + __import__('datetime').timedelta(minutes=device_offset + server_offset_minutes)
+    elif modified_ms:
+        try:
+            taken = datetime.fromtimestamp(modified_ms / 1000.0)
+            source = 'file timestamp fallback'
+        except (ValueError, OSError, OverflowError):
+            taken = None
+    if not taken:
+        return jsonify({'ok': False, 'error': f'{uploaded.filename}: no usable photo date/time'}), 422
+
+    with db() as conn:
+        shoots = conn.execute(
+            """SELECT s.* FROM photo_shoot_sessions s
+               WHERE s.deleted_at IS NULL AND s.ended_at IS NOT NULL
+                 AND s.started_at<=? AND s.ended_at>?
+               ORDER BY s.started_at DESC""",
+            (taken.isoformat(timespec='seconds'), taken.isoformat(timespec='seconds')),
+        ).fetchall()
+        if len(shoots) != 1:
+            message = 'does not fall inside a completed Photo Shoot' if not shoots else 'matches more than one Photo Shoot'
+            return jsonify({'ok': False, 'error': f'{uploaded.filename}: {message}', 'taken': taken.isoformat(timespec='seconds')}), 422
+        shoot = shoots[0]
+        marker_count = conn.execute(
+            '''SELECT
+               (SELECT COUNT(*) FROM photo_shoot_scans WHERE session_id=?) +
+               (SELECT COUNT(*) FROM photo_shoot_pending_scans WHERE session_id=?) AS n''',
+            (shoot['id'], shoot['id']),
+        ).fetchone()['n']
+        if not marker_count:
+            return jsonify({'ok': False, 'error': f'{uploaded.filename}: matching shoot has no scan markers'}), 422
+        job = conn.execute(
+            "SELECT * FROM photo_upload_jobs WHERE batch_token=? AND session_id=? AND status='Uploading' ORDER BY id DESC LIMIT 1",
+            (token, shoot['id']),
+        ).fetchone()
+        if job:
+            job_id = int(job['id'])
+        else:
+            cur = conn.execute(
+                '''INSERT INTO photo_upload_jobs(session_id,status,device_tz_offset,created_at,batch_token)
+                   VALUES(?, 'Uploading', ?, ?, ?)''',
+                (shoot['id'], device_offset, datetime.now().isoformat(timespec='seconds'), token),
+            )
+            job_id = int(cur.lastrowid)
+
+    suffix = Path(original).suffix.lower()
+    staged_name = f'{order_index:06d}-{uuid.uuid4().hex}{suffix}'
+    destination = _staging_dir(job_id) / staged_name
+    uploaded.stream.seek(0)
+    uploaded.save(destination)
+    with db() as conn:
+        conn.execute(
+            '''INSERT INTO photo_upload_items(job_id,order_index,original_name,staged_name,modified_ms,size_bytes,status)
+               VALUES(?,?,?,?,?,?,'Staged')''',
+            (job_id, order_index, original, staged_name, modified_ms, destination.stat().st_size),
+        )
+        conn.execute('UPDATE photo_upload_jobs SET uploaded_files=uploaded_files+1 WHERE id=?', (job_id,))
+    return jsonify({'ok': True, 'job_id': job_id, 'session_id': int(shoot['id']), 'taken': taken.isoformat(timespec='seconds'), 'timestamp_source': source})
+
+
+@bp.post('/upload/auto-finish')
+def auto_finish_upload():
+    init_tables()
+    token = ''.join(c for c in request.form.get('batch_token', '') if c.isalnum() or c in '-_')[:80]
+    if not token:
+        return jsonify({'ok': False, 'error': 'Upload batch is missing.'}), 400
+    queued = []
+    with db() as conn:
+        jobs = conn.execute(
+            "SELECT id,session_id FROM photo_upload_jobs WHERE batch_token=? AND status='Uploading' ORDER BY id",
+            (token,),
+        ).fetchall()
+        for job in jobs:
+            total = conn.execute('SELECT COUNT(*) AS n FROM photo_upload_items WHERE job_id=?', (job['id'],)).fetchone()['n']
+            if not total:
+                continue
+            conn.execute(
+                '''UPDATE photo_upload_jobs SET status='Queued',total_files=?,uploaded_files=?,queued_at=? WHERE id=?''',
+                (total, total, datetime.now().isoformat(timespec='seconds'), job['id']),
+            )
+            queued.append({'job_id': int(job['id']), 'session_id': int(job['session_id']), 'total_files': int(total)})
+    if not queued:
+        return jsonify({'ok': False, 'error': 'No photos matched a Photo Shoot.'}), 422
+    return jsonify({'ok': True, 'jobs': queued, 'total_files': sum(j['total_files'] for j in queued)})
 
 
 @bp.post('/upload/start/<int:session_id>')
