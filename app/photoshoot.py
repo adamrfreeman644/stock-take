@@ -541,6 +541,68 @@ def unassigned_thumbnail(item_id):
     return send_file(thumbnail, mimetype='image/jpeg', max_age=86400)
 
 
+@bp.post('/unassigned/<int:item_id>/discard')
+def discard_unassigned(item_id):
+    init_tables()
+    staged = None
+    with db() as conn:
+        item = conn.execute("SELECT * FROM photo_upload_items WHERE id=? AND status='Unmatched'", (item_id,)).fetchone()
+        if not item:
+            flash('Unassigned photo was not found.', 'error')
+            return redirect(url_for('photoshoot.photo_shoot'))
+        staged = _staging_dir(item['job_id']) / item['staged_name']
+        conn.execute("UPDATE photo_upload_items SET status='Discarded',result_json=? WHERE id=?",
+                     (json.dumps({'reason': 'Discarded manually'}), item_id))
+    try:
+        if staged and staged.is_file():
+            staged.unlink()
+    except OSError:
+        pass
+    flash('Unassigned photo discarded.', 'success')
+    return redirect(url_for('photoshoot.photo_shoot'))
+
+
+@bp.post('/unassigned/<int:item_id>/assign')
+def assign_unassigned(item_id):
+    init_tables()
+    barcode = request.form.get('barcode', '').strip()
+    if not barcode:
+        flash('Enter a product barcode to assign this photo.', 'error')
+        return redirect(url_for('photoshoot.photo_shoot'))
+    with db() as conn:
+        item = conn.execute("SELECT * FROM photo_upload_items WHERE id=? AND status='Unmatched'", (item_id,)).fetchone()
+        product = conn.execute("""SELECT p.id,p.item FROM products p JOIN item_barcodes ib ON ib.product_id=p.id
+                                  WHERE ib.barcode=? ORDER BY ib.id LIMIT 1""", (barcode,)).fetchone()
+        if not item or not product:
+            flash('Photo or barcode could not be found.', 'error')
+            return redirect(url_for('photoshoot.photo_shoot'))
+        staged = _staging_dir(item['job_id']) / item['staged_name']
+        if not staged.is_file():
+            flash('The staged photo file is missing.', 'error')
+            return redirect(url_for('photoshoot.photo_shoot'))
+        ext = staged.suffix.lower().lstrip('.')
+        if ext not in ALLOWED_EXTENSIONS:
+            flash('That image type cannot be assigned.', 'error')
+            return redirect(url_for('photoshoot.photo_shoot'))
+        filename = f"p{product['id']}_shoot{item['job_id']}_{item_id}.{ext}"
+        final_path = PHOTO_DIR / filename
+        if not final_path.exists():
+            shutil.copy2(staged, final_path)
+        exists = conn.execute('SELECT 1 FROM photos WHERE filename=? LIMIT 1', (filename,)).fetchone()
+        if not exists:
+            order = conn.execute('SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM photos WHERE product_id=?', (product['id'],)).fetchone()['n']
+            conn.execute('INSERT INTO photos(product_id,filename,sort_order,source_barcode) VALUES(?,?,?,?)',
+                         (product['id'], filename, order, barcode))
+        conn.execute("UPDATE photo_upload_items SET status='Assigned',result_json=? WHERE id=?",
+                     (json.dumps({'inventory_id': barcode, 'item': product['item'], 'manual_assignment': True}, separators=(',', ':')), item_id))
+    try:
+        staged.unlink()
+    except OSError:
+        pass
+    flash(f"Photo assigned to {product['item']}.", 'success')
+    return redirect(url_for('photoshoot.photo_shoot'))
+
+
 @bp.get('/pending-thumbnail/<int:asset_id>')
 def pending_thumbnail(asset_id):
     init_tables()
