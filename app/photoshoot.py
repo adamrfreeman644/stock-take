@@ -1,5 +1,6 @@
 import json
 import os
+import hashlib
 import shutil
 import sqlite3
 import uuid
@@ -87,6 +88,7 @@ def init_tables():
             staged_name TEXT NOT NULL,
             modified_ms REAL,
             size_bytes INTEGER NOT NULL DEFAULT 0,
+            content_hash TEXT,
             status TEXT NOT NULL DEFAULT 'Staged',
             result_json TEXT,
             FOREIGN KEY(job_id) REFERENCES photo_upload_jobs(id) ON DELETE CASCADE
@@ -114,6 +116,10 @@ def init_tables():
         session_columns = {row['name'] for row in conn.execute('PRAGMA table_info(photo_shoot_sessions)').fetchall()}
         if 'deleted_at' not in session_columns:
             conn.execute('ALTER TABLE photo_shoot_sessions ADD COLUMN deleted_at TEXT')
+        item_columns = {row['name'] for row in conn.execute('PRAGMA table_info(photo_upload_items)').fetchall()}
+        if 'content_hash' not in item_columns:
+            conn.execute('ALTER TABLE photo_upload_items ADD COLUMN content_hash TEXT')
+        conn.execute('CREATE INDEX IF NOT EXISTS idx_photo_items_hash ON photo_upload_items(content_hash)')
         job_columns = {row['name'] for row in conn.execute('PRAGMA table_info(photo_upload_jobs)').fetchall()}
         if 'batch_token' not in job_columns:
             conn.execute('ALTER TABLE photo_upload_jobs ADD COLUMN batch_token TEXT')
@@ -721,16 +727,32 @@ def auto_stage_file():
             )
             job_id = int(cur.lastrowid)
 
+    uploaded.stream.seek(0)
+    digest = hashlib.sha256()
+    while True:
+        chunk = uploaded.stream.read(1024 * 1024)
+        if not chunk:
+            break
+        digest.update(chunk)
+    content_hash = digest.hexdigest()
+    uploaded.stream.seek(0)
+    with db() as conn:
+        duplicate = conn.execute(
+            "SELECT id,status FROM photo_upload_items WHERE content_hash=? AND status NOT IN ('Discarded','Unmatched') ORDER BY id LIMIT 1",
+            (content_hash,),
+        ).fetchone()
+    if duplicate:
+        return jsonify({'ok': True, 'duplicate': True, 'skipped': True, 'session_id': int(shoot['id']), 'taken': taken.isoformat(timespec='seconds')})
+
     suffix = Path(original).suffix.lower()
     staged_name = f'{order_index:06d}-{uuid.uuid4().hex}{suffix}'
     destination = _staging_dir(job_id) / staged_name
-    uploaded.stream.seek(0)
     uploaded.save(destination)
     with db() as conn:
         conn.execute(
-            '''INSERT INTO photo_upload_items(job_id,order_index,original_name,staged_name,modified_ms,size_bytes,status)
-               VALUES(?,?,?,?,?,?,'Staged')''',
-            (job_id, order_index, original, staged_name, modified_ms, destination.stat().st_size),
+            '''INSERT INTO photo_upload_items(job_id,order_index,original_name,staged_name,modified_ms,size_bytes,content_hash,status)
+               VALUES(?,?,?,?,?,?,?,'Staged')''',
+            (job_id, order_index, original, staged_name, modified_ms, destination.stat().st_size, content_hash),
         )
         conn.execute('UPDATE photo_upload_jobs SET uploaded_files=uploaded_files+1 WHERE id=?', (job_id,))
     return jsonify({'ok': True, 'job_id': job_id, 'session_id': int(shoot['id']), 'taken': taken.isoformat(timespec='seconds'), 'timestamp_source': source})
