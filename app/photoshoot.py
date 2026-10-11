@@ -352,7 +352,8 @@ def photo_shoot():
                 jobs[shoot['id']] = {k: job[k] for k in job.keys()}
         pending = conn.execute('''SELECT ps.barcode,MIN(ps.scanned_at) AS first_scanned,
                                  COUNT(DISTINCT ps.id) AS scan_count,
-                                 COUNT(DISTINCT pa.id) AS photo_count
+                                 COUNT(DISTINCT pa.id) AS photo_count,
+                                 MIN(pa.id) AS preview_asset_id
                                  FROM photo_shoot_pending_scans ps
                                  LEFT JOIN photo_pending_assets pa ON pa.pending_scan_id=ps.id AND pa.product_id IS NULL
                                  WHERE ps.resolved_product_id IS NULL
