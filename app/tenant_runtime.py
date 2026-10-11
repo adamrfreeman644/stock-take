@@ -29,6 +29,10 @@ def configure(app, server, tenant):
             # the following UPDATE fails, leaving the user with an error page
             # and stale thumbnails.
             ensure_column(conn, 'photos', 'updated_at', 'TEXT')
+            # Photo Shoot metadata belongs in the same tenant migration path as
+            # the rest of the inventory schema. Manual/legacy photos leave this
+            # NULL and are treated as general listing photos.
+            ensure_column(conn, 'photos', 'source_barcode', 'TEXT')
             conn.executescript('''
             CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
