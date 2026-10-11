@@ -61,7 +61,12 @@
       {% for photo in unassigned %}
       <div class="pending-row">
         <button type="button" class="pending-preview" data-pending-preview="{{ url_for('photoshoot.unassigned_thumbnail', item_id=photo.upload_item_id) }}" aria-label="View unassigned photo {{ photo.original_name }}"><img src="{{ url_for('photoshoot.unassigned_thumbnail', item_id=photo.upload_item_id) }}" alt="Unassigned photo" loading="lazy"></button>
-        <div class="pending-row-main"><strong>{{ photo.original_name }}</strong><span>Unassigned{% if photo.session_id %} · Shoot #{{ photo.session_id }}{% endif %}</span></div>
+        <div class="pending-row-main"><strong>{{ photo.original_name }}</strong><span>Unassigned{% if photo.session_id %} · Shoot #{{ photo.session_id }}{% endif %}</span>
+          <div class="unassigned-actions">
+            <form method="post" action="{{ url_for('photoshoot.assign_unassigned', item_id=photo.upload_item_id) }}"><input name="barcode" inputmode="numeric" autocomplete="off" placeholder="Product barcode" aria-label="Product barcode" required><button class="btn primary" type="submit">Assign</button></form>
+            <form method="post" action="{{ url_for('photoshoot.discard_unassigned', item_id=photo.upload_item_id) }}" onsubmit="return confirm('Discard this unassigned staged photo?')"><button class="btn" type="submit">Discard</button></form>
+          </div>
+        </div>
         <div class="pending-count">Needs attention</div>
       </div>
       {% endfor %}
@@ -115,6 +120,7 @@
 </div>
 <div class="photo-review" data-photo-review hidden><div class="photo-review-head"><button type="button" class="photo-review-back" data-photo-review-back>← Back to review</button></div><div class="photo-review-image"><img data-photo-review-image alt="Photo review"></div></div>
 {% endblock %}
+<style>.unassigned-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.unassigned-actions form{display:flex;gap:5px;margin:0}.unassigned-actions input{width:135px;min-width:0;padding:7px 8px;border:1px solid var(--border,#ccc);border-radius:7px;font:inherit}.unassigned-actions .btn{padding:7px 9px}@media(max-width:600px){.unassigned-actions{width:100%}.unassigned-actions form:first-child{flex:1 1 100%}.unassigned-actions input{flex:1;width:auto}}</style>
 {% block scripts %}
 {% if session %}<script>
 (function(){
