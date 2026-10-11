@@ -11,3 +11,7 @@
 
 /* Product detail mobile action grid: keep all four labels visible */
 @media(max-width:480px){.detail-page-head .head-actions{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:6px!important}.detail-page-head .head-actions>a,.detail-page-head .head-actions>form{display:block!important;width:100%!important;min-width:0!important;margin:0!important}.detail-page-head .head-actions>form>button.btn{display:flex!important;width:100%!important;min-width:0!important;min-height:42px!important;align-items:center!important;justify-content:center!important;color:inherit!important;font-size:14px!important;font-weight:600!important;line-height:1.2!important;visibility:visible!important;opacity:1!important}.detail-page-head .head-actions>a.btn{display:flex!important;min-height:42px!important;align-items:center!important;justify-content:center!important}}
+
+
+/* Cross-platform Chrome hardening (iOS WebKit, Android/Windows Chromium) */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}button,input,select,textarea{font-family:inherit}.btn,button{-webkit-appearance:none;appearance:none}.shell{padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}@supports(height:100dvh){.burger-menu{max-height:calc(100dvh - 70px);overflow:auto}}
