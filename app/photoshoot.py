@@ -318,12 +318,12 @@ def photo_shoot():
         scans = []
         current = None
         if session:
-            known = conn.execute('''SELECT s.scanned_at,p.item,s.product_id,
+            known = conn.execute('''SELECT s.scanned_at,p.item,p.main_colour,p.secondary_colour,p.pattern,s.product_id,
                                     COALESCE(s.scanned_barcode,(SELECT ib.barcode FROM item_barcodes ib WHERE ib.product_id=p.id ORDER BY ib.id LIMIT 1)) AS inventory_id,
                                     0 AS pending
                                     FROM photo_shoot_scans s JOIN products p ON p.id=s.product_id
                                     WHERE s.session_id=?''', (session['id'],)).fetchall()
-            waiting = conn.execute('''SELECT scanned_at,'Pending product' AS item,NULL AS product_id,barcode AS inventory_id,1 AS pending
+            waiting = conn.execute('''SELECT scanned_at,'Pending product' AS item,'' AS main_colour,'' AS secondary_colour,'' AS pattern,NULL AS product_id,barcode AS inventory_id,1 AS pending
                                       FROM photo_shoot_pending_scans
                                       WHERE session_id=? AND resolved_product_id IS NULL''', (session['id'],)).fetchall()
             scans = []
