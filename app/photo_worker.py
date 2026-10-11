@@ -153,7 +153,7 @@ def process_job(account_id, job_id):
                      (datetime.now().isoformat(timespec='seconds'), job_id))
         shoot = conn.execute('SELECT * FROM photo_shoot_sessions WHERE id=?', (job['session_id'],)).fetchone()
         known_rows = conn.execute('''SELECT s.id AS scan_id,s.scanned_at,s.product_id,p.item,
-                                    (SELECT ib.barcode FROM item_barcodes ib WHERE ib.product_id=p.id ORDER BY ib.id LIMIT 1) AS inventory_id
+                                    COALESCE(s.scanned_barcode,(SELECT ib.barcode FROM item_barcodes ib WHERE ib.product_id=p.id ORDER BY ib.id LIMIT 1)) AS inventory_id
                                     FROM photo_shoot_scans s JOIN products p ON p.id=s.product_id
                                     WHERE s.session_id=?''', (job['session_id'],)).fetchall()
         pending_rows = conn.execute('''SELECT ps.id AS pending_scan_id,ps.scanned_at,ps.barcode AS inventory_id,
@@ -270,7 +270,7 @@ def process_job(account_id, job_id):
             exists = conn.execute('SELECT 1 FROM photos WHERE filename=? LIMIT 1', (filename,)).fetchone()
             if not exists:
                 order = conn.execute('SELECT COALESCE(MAX(sort_order),0)+1 AS n FROM photos WHERE product_id=?', (target['product_id'],)).fetchone()['n']
-                conn.execute('INSERT INTO photos(product_id,filename,sort_order) VALUES(?,?,?)', (target['product_id'], filename, order))
+                conn.execute('INSERT INTO photos(product_id,filename,sort_order,source_barcode) VALUES(?,?,?,?)', (target['product_id'], filename, order, target['inventory_id']))
             conn.execute("UPDATE photo_upload_items SET status='Assigned',result_json=? WHERE id=?",
                          (result_json(inventory_id=target['inventory_id'], item=target['item'], taken=taken.isoformat(timespec='seconds'), timestamp_source=source), item['id']))
             conn.execute("UPDATE photo_upload_jobs SET processed_files=processed_files+1,assigned_count=assigned_count+1 WHERE id=?", (job_id,))
