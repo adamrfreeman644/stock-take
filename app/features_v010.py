@@ -192,7 +192,8 @@ def configure(app, server):
                 if exact:
                     return redirect(url_for('product_detail', product_id=exact['id']))
             sql = '''SELECT p.*, ph.filename AS main_photo, ph.updated_at AS main_photo_updated,
-                     (SELECT MIN(ib.barcode) FROM item_barcodes ib WHERE ib.product_id=p.id) AS first_barcode
+                     (SELECT MIN(ib.barcode) FROM item_barcodes ib WHERE ib.product_id=p.id) AS first_barcode,
+                     (SELECT GROUP_CONCAT(ib.barcode, '||') FROM item_barcodes ib WHERE ib.product_id=p.id ORDER BY ib.id) AS all_barcodes
                      FROM products p
                      LEFT JOIN photos ph ON ph.id=(SELECT id FROM photos WHERE product_id=p.id ORDER BY sort_order,id LIMIT 1)
                      WHERE p.archived_at IS NULL'''
