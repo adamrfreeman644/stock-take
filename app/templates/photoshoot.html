@@ -69,6 +69,21 @@
   </section>
   {% endif %}
 
+  {% if duplicate_review %}
+  <section class="shoot-sessions pending-section">
+    <div class="pending-section-head"><div><h2>Duplicates to Review</h2><p class="muted">These existing listing photos were detected again during upload and have been flagged for removal review. Nothing has been deleted automatically.</p></div></div>
+    <div class="pending-list">
+      {% for photo in duplicate_review %}
+      <div class="pending-row">
+        {% if photo.filename %}<button type="button" class="pending-preview" data-pending-preview="{{ url_for('photo_file', filename=photo.filename) }}" aria-label="View duplicate photo"><img src="{{ url_for('thumbnail_file', size='selector', filename=photo.filename) }}" alt="Duplicate listing photo" loading="lazy"></button>{% else %}<div class="pending-preview pending-preview-placeholder">Photo</div>{% endif %}
+        <div class="pending-row-main"><strong>{{ photo.item }}</strong><span>{% if photo.barcode %}{{ photo.barcode }} · {% endif %}Duplicate — review for removal</span></div>
+        <a class="btn" href="{{ url_for('product_detail', product_id=photo.product_id) }}">View Listing</a>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
   <section class="shoot-sessions shoot-upload-section">
     <div class="pending-section-head"><div><h2>Upload Photos</h2><p class="muted">Choose photos at any time, including while a Photo Shoot is active. Completed-shoot photos are matched and assigned automatically by capture date and time.</p></div></div>
     <form class="batch-upload global-photo-upload" data-global-batch-form>
