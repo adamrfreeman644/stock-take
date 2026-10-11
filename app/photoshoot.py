@@ -311,15 +311,25 @@ def photo_shoot():
         scans = []
         current = None
         if session:
-            known = conn.execute('''SELECT s.scanned_at,p.item,
+            known = conn.execute('''SELECT s.scanned_at,p.item,s.product_id,
                                     (SELECT ib.barcode FROM item_barcodes ib WHERE ib.product_id=p.id ORDER BY ib.id LIMIT 1) AS inventory_id,
                                     0 AS pending
                                     FROM photo_shoot_scans s JOIN products p ON p.id=s.product_id
                                     WHERE s.session_id=?''', (session['id'],)).fetchall()
-            waiting = conn.execute('''SELECT scanned_at,'Pending product' AS item,barcode AS inventory_id,1 AS pending
+            waiting = conn.execute('''SELECT scanned_at,'Pending product' AS item,NULL AS product_id,barcode AS inventory_id,1 AS pending
                                       FROM photo_shoot_pending_scans
                                       WHERE session_id=? AND resolved_product_id IS NULL''', (session['id'],)).fetchall()
-            scans = sorted([dict(r) for r in known] + [dict(r) for r in waiting], key=lambda r: r['scanned_at'], reverse=True)
+            scans = []
+            for row in known:
+                item = dict(row)
+                tag_rows = conn.execute('SELECT barcode FROM item_barcodes WHERE product_id=? ORDER BY id', (row['product_id'],)).fetchall()
+                item['tags'] = [tag['barcode'] for tag in tag_rows]
+                scans.append(item)
+            for row in waiting:
+                item = dict(row)
+                item['tags'] = [item['inventory_id']]
+                scans.append(item)
+            scans.sort(key=lambda r: r['scanned_at'], reverse=True)
             current = scans[0] if scans else None
         recent = conn.execute("SELECT * FROM photo_shoot_sessions WHERE deleted_at IS NULL ORDER BY id DESC LIMIT 8").fetchall()
         jobs = {}
