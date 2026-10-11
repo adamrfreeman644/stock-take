@@ -689,31 +689,39 @@ def scan_product():
     init_tables()
     code = request.form.get('barcode', '').strip()
     scanner_token = request.form.get('scanner_token', '').strip()[:120]
-    if not code:
+    wants_json = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    def fail(message, status=409):
+        if wants_json:
+            return jsonify({'ok': False, 'error': message}), status
+        flash(message, 'error')
         return redirect(url_for('photoshoot.photo_shoot'))
+    if not code:
+        return fail('Scan a barcode first.', 400)
     with db() as conn:
         session = conn.execute("SELECT * FROM photo_shoot_sessions WHERE status='Active' ORDER BY id DESC LIMIT 1").fetchone()
         if not session:
-            flash('Start a photo shoot first.', 'error')
-            return redirect(url_for('photoshoot.photo_shoot'))
+            return fail('Start a photo shoot first.')
         if not scanner_token or session['scanner_token'] != scanner_token or not _scanner_lease_alive(session):
-            flash('This device is not the active Photo Shoot scanner.', 'error')
-            return redirect(url_for('photoshoot.photo_shoot'))
-        conn.execute('UPDATE photo_shoot_sessions SET scanner_last_seen=? WHERE id=?', (datetime.now().isoformat(timespec='seconds'), session['id']))
+            return fail('This device is not the active Photo Shoot scanner.')
+        now = datetime.now().isoformat(timespec='seconds')
+        conn.execute('UPDATE photo_shoot_sessions SET scanner_last_seen=? WHERE id=?', (now, session['id']))
         product = conn.execute('''SELECT p.* FROM item_barcodes ib JOIN products p ON p.id=ib.product_id
                                   WHERE ib.barcode=? LIMIT 1''', (code,)).fetchone()
-        now = datetime.now().isoformat(timespec='seconds')
         if not product:
-            conn.execute(
-                'INSERT INTO photo_shoot_pending_scans(session_id,barcode,scanned_at) VALUES(?,?,?)',
-                (session['id'], code, now),
-            )
+            conn.execute('INSERT INTO photo_shoot_pending_scans(session_id,barcode,scanned_at) VALUES(?,?,?)',
+                         (session['id'], code, now))
+            if wants_json:
+                return jsonify({'ok': True, 'pending': True, 'barcode': code, 'item': 'Pending product', 'scanned_at': now})
             flash(f'Barcode {code} is not in stock yet. Its photo window is being held until that product is created.', 'info')
             return redirect(url_for('photoshoot.photo_shoot'))
         conn.execute('INSERT INTO photo_shoot_scans(session_id,product_id,scanned_at,scanned_barcode) VALUES(?,?,?,?)',
                      (session['id'], product['id'], now, code))
+        tags = [r['barcode'] for r in conn.execute('SELECT barcode FROM item_barcodes WHERE product_id=? ORDER BY id', (product['id'],)).fetchall()]
+        if wants_json:
+            return jsonify({'ok': True, 'pending': False, 'barcode': code, 'item': product['item'],
+                            'main_colour': product['main_colour'] or '', 'secondary_colour': product['secondary_colour'] or '',
+                            'pattern': product['pattern'] or '', 'tags': tags, 'scanned_at': now})
     return redirect(url_for('photoshoot.photo_shoot'))
-
 
 @bp.post('/end')
 def end_session():
