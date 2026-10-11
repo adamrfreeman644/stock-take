@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
-<section class="toolbar"><div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn primary" href="{{ url_for('new_product') }}">+ Add Product</a><a class="btn" href="{{ url_for('merge_duplicates_global') }}">Merge Duplicates</a></div><div class="view-toggle"><a class="btn {{ 'active' if view == 'table' }}" href="{{ url_for('index', view='table', q=q, status=status) }}">Table</a><a class="btn {{ 'active' if view != 'table' }}" href="{{ url_for('index', view='cards', q=q, status=status) }}">Cards</a>{% if view != 'table' %}<label class="tile-width-select-wrap" aria-label="Tiles across"><span>Tiles</span><select data-tile-width-select aria-label="Tiles wide">{% for n in range(1,6) %}<option value="{{ n }}">{{ n }}</option>{% endfor %}</select></label>{% endif %}</div></section>
+<section class="toolbar"><div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn primary" href="{{ url_for('new_product') }}">+ Add Product</a><a class="btn" href="{{ url_for('merge_duplicates_global') }}">Merge Duplicates</a></div><div class="view-toggle compact-view-controls"><label class="view-select-wrap"><span>View</span><select data-view-select aria-label="Inventory view"><option value="cards" {{ 'selected' if view != 'table' }}>Cards</option><option value="table" {{ 'selected' if view == 'table' }}>Table</option></select></label>{% if view != 'table' %}<label class="tile-width-select-wrap compact-tiles" aria-label="Tiles across"><select data-tile-width-select aria-label="Tiles wide">{% for n in range(1,6) %}<option value="{{ n }}">{{ n }} wide</option>{% endfor %}</select></label>{% endif %}</div></section>
 <form class="filters" method="get"><input type="hidden" name="view" value="{{ view }}"><input name="q" value="{{ q }}" placeholder="Search item, colour, pattern, barcode…"><select name="status" onchange="this.form.submit()"><option value="">All status</option><option value="Available" {{ 'selected' if status == 'Available' }}>Available</option><option value="Sold" {{ 'selected' if status == 'Sold' }}>Sold</option><option value="No photos" {{ 'selected' if status == 'No photos' }}>No photos</option></select><button class="btn" type="submit">Search</button></form>
 <div class="summary"><span>{{ available }} products available</span><span>{{ sold }} sold out</span><span>{{ products|length }} shown</span></div>
 {% if not products %}<div class="empty"><h2>No products yet</h2><p>Add the first item or change your filters.</p></div>
@@ -12,6 +12,17 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+(()=>{
+ const viewSelect=document.querySelector('[data-view-select]');
+ if(!viewSelect)return;
+ viewSelect.addEventListener('change',()=>{
+   const url=new URL(window.location.href);
+   url.searchParams.set('view',viewSelect.value);
+   window.location.href=url.toString();
+ });
+})();
+</script>
 {% if view != 'table' %}
 <script>
 (()=>{
