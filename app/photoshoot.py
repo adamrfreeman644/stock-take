@@ -113,6 +113,16 @@ def init_tables():
         CREATE INDEX IF NOT EXISTS idx_pending_assets_barcode ON photo_pending_assets(barcode,product_id);
         CREATE INDEX IF NOT EXISTS idx_photo_jobs_status ON photo_upload_jobs(status,id);
         CREATE INDEX IF NOT EXISTS idx_photo_items_job ON photo_upload_items(job_id,order_index,id);
+        CREATE TABLE IF NOT EXISTS photo_duplicate_review (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            upload_item_id INTEGER NOT NULL UNIQUE,
+            product_id INTEGER NOT NULL,
+            barcode TEXT,
+            flagged_at TEXT NOT NULL,
+            FOREIGN KEY(upload_item_id) REFERENCES photo_upload_items(id),
+            FOREIGN KEY(product_id) REFERENCES products(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_duplicate_review_product ON photo_duplicate_review(product_id,id);
         ''')
         scan_columns = {row['name'] for row in conn.execute('PRAGMA table_info(photo_shoot_scans)').fetchall()}
         if 'scanned_barcode' not in scan_columns:
@@ -366,7 +376,15 @@ def photo_shoot():
                              WHERE i.status='Unmatched'
                              ORDER BY i.id DESC""").fetchall()
         unassigned = [dict(row) for row in unassigned if (_staging_dir(row['job_id']) / row['staged_name']).is_file()]
-    return render_template('photoshoot.html', session=session, scans=scans, current=current, recent=recent, jobs=jobs, pending=pending, unassigned=unassigned)
+        duplicate_review = conn.execute("""SELECT dr.id,dr.upload_item_id,dr.product_id,dr.barcode,dr.flagged_at,
+                                                  p.item,ph.filename
+                                           FROM photo_duplicate_review dr
+                                           JOIN products p ON p.id=dr.product_id
+                                           LEFT JOIN photo_upload_items i ON i.id=dr.upload_item_id
+                                           LEFT JOIN photos ph ON ph.product_id=dr.product_id
+                                             AND ph.filename LIKE ('%_shoot' || i.job_id || '_' || i.id || '.%')
+                                           ORDER BY dr.flagged_at DESC,dr.id DESC""").fetchall()
+    return render_template('photoshoot.html', session=session, scans=scans, current=current, recent=recent, jobs=jobs, pending=pending, unassigned=unassigned, duplicate_review=duplicate_review)
 
 
 def _result_data(raw):
@@ -899,7 +917,10 @@ def auto_stage_file():
                                           JOIN item_barcodes ib ON ib.product_id=p.id
                                           WHERE ib.barcode=? LIMIT 1""", (barcode,)).fetchone() if barcode else None
                 if product:
-                    location = {'kind': 'listing', 'label': 'Already in use on a listing',
+                    conn.execute("""INSERT OR IGNORE INTO photo_duplicate_review
+                                    (upload_item_id,product_id,barcode,flagged_at) VALUES(?,?,?,?)""",
+                                 (duplicate['id'], product['id'], barcode, datetime.now().isoformat(timespec='seconds')))
+                    location = {'kind': 'listing', 'label': 'Already in use on a listing — flagged for removal review',
                                 'product_id': int(product['id']), 'product_name': product['item'],
                                 'barcode': barcode, 'url': url_for('product_detail', product_id=product['id'])}
             elif duplicate['status'] == 'PendingProduct':
