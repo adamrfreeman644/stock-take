@@ -11,7 +11,7 @@
   <div class="page-head"><div><div class="eyebrow">Batch workflow</div><h1>Photo Shoot</h1><p class="muted">Scan each product as you move through the shoot. Unknown barcodes are held safely until the product is created.</p></div></div>
 
   {% if session %}
-  <section class="shoot-start-card scanner-device-join" data-scanner-join-card><h2>Photo Shoot in progress</h2><p>This browser is not currently acting as the scanner. The rest of Photo Shoot stays available normally.</p><button class="btn primary" type="button" data-join-scanner>Use this device as scanner</button></section>
+  <section class="shoot-start-card scanner-device-join" data-scanner-join-card><h2>Photo Shoot active</h2><p data-scanner-status>{% if session.scanner_token %}Scanner in use on another device. Only one scanner can control this shoot.{% else %}No scanner is currently connected to this shoot.{% endif %}</p><button class="btn primary" type="button" data-join-scanner{% if session.scanner_token %} hidden{% endif %}>Use this device as scanner</button></section>
   <div class="scanner-device-backdrop" data-scanner-device-backdrop hidden>
   <section class="scanner-device-modal" role="dialog" aria-modal="true" aria-label="Active Photo Shoot scanner">
     <div class="scanner-device-head"><strong>Active Photo Shoot scanner</strong><button type="button" class="btn scanner-device-close" data-close-scanner aria-label="Close scanner">✕</button></div>
@@ -21,7 +21,7 @@
       <div class="scanner-ready"><span class="scanner-ready-dot"></span><span>Scanner ready</span></div>
       <label for="shoot-barcode">Scan next barcode</label>
       <div class="scan-input-wrap">
-        <input id="shoot-barcode" name="barcode" type="text" inputmode="none" virtualkeyboardpolicy="manual" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="done" placeholder="Scan barcode…" aria-label="Scan next product barcode">
+        <input type="hidden" name="scanner_token" data-scanner-token-input><input id="shoot-barcode" name="barcode" type="text" inputmode="none" virtualkeyboardpolicy="manual" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="done" placeholder="Scan barcode…" aria-label="Scan next product barcode">
         <span class="scan-input-icon" aria-hidden="true">⌁</span>
       </div>
       <div class="scan-help">If the barcode is not in StockTake yet, the photo window will be kept pending instead of rejected.</div>
@@ -92,19 +92,23 @@
   const join=document.querySelector('[data-join-scanner]');
   const close=document.querySelector('[data-close-scanner]');
   if(!e||!backdrop)return;
-  const scannerKey='stocktake.photoShoot.scannerSession';
+  const scannerKey='stocktake.photoShoot.scannerToken';
   const sessionId='{{ session.id }}';
-  const isScanner=()=>{try{return localStorage.getItem(scannerKey)===sessionId}catch(_err){return false}};
-  const setScanner=active=>{try{if(active)localStorage.setItem(scannerKey,sessionId);else localStorage.removeItem(scannerKey)}catch(_err){}};
-  const openScanner=()=>{setScanner(true);backdrop.hidden=false;document.body.style.overflow='hidden';setTimeout(keepScannerReady,30)};
-  const closeScanner=()=>{setScanner(false);backdrop.hidden=true;document.body.style.overflow='';e.blur()};
+  const status=document.querySelector('[data-scanner-status]');
+  const tokenInput=document.querySelector('[data-scanner-token-input]');
+  const getToken=()=>{try{let token=localStorage.getItem(scannerKey);if(!token){token=(crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2));localStorage.setItem(scannerKey,token)}return token}catch(_err){return ''}};
+  const token=getToken();
+  if(tokenInput)tokenInput.value=token;
+  const postScanner=async(url)=>{const body=new FormData();body.append('scanner_token',token);const r=await fetch(url,{method:'POST',body});const j=await r.json();if(!r.ok||!j.ok)throw new Error(j.error||'Scanner unavailable');return j};
+  const openScanner=async()=>{try{await postScanner('/photo-shoot/scanner/claim');backdrop.hidden=false;document.body.style.overflow='hidden';if(join)join.hidden=true;if(status)status.textContent='Scanner in use on this device.';setTimeout(keepScannerReady,30)}catch(err){if(status)status.textContent=err.message;if(join)join.hidden=true}};
+  const closeScanner=async()=>{try{await postScanner('/photo-shoot/scanner/release')}catch(_err){}backdrop.hidden=true;document.body.style.overflow='';e.blur();if(join)join.hidden=false;if(status)status.textContent='No scanner is currently connected to this shoot.'};
   if(join)join.addEventListener('click',openScanner);
   if(close)close.addEventListener('click',closeScanner);
   const keepScannerReady=()=>{
     try{if(navigator.virtualKeyboard&&typeof navigator.virtualKeyboard.hide==='function')navigator.virtualKeyboard.hide();}catch(_err){}
     e.focus({preventScroll:true});
   };
-  window.addEventListener('load',()=>{e.value='';if(isScanner())openScanner()});
+  window.addEventListener('load',()=>{e.value='';{% if session.scanner_token %}openScanner();{% endif %}});
   document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!backdrop.hidden)setTimeout(keepScannerReady,80)});
   e.addEventListener('blur',()=>{if(!backdrop.hidden)setTimeout(keepScannerReady,80)});
   e.addEventListener('keydown',event=>{
@@ -120,7 +124,7 @@
         event.preventDefault();
         setTimeout(keepScannerReady,80);
       }else{
-        setScanner(false);
+        try{navigator.sendBeacon('/photo-shoot/scanner/release',new URLSearchParams({scanner_token:token}))}catch(_err){}
       }
     });
   }
