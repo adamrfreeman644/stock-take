@@ -359,7 +359,14 @@ def photo_shoot():
                                  WHERE ps.resolved_product_id IS NULL
                                  GROUP BY ps.barcode
                                  ORDER BY first_scanned DESC''').fetchall()
-    return render_template('photoshoot.html', session=session, scans=scans, current=current, recent=recent, jobs=jobs, pending=pending)
+        unassigned = conn.execute("""SELECT i.id AS upload_item_id,i.job_id,i.original_name,i.staged_name,i.result_json,
+                                    j.session_id,j.finished_at
+                             FROM photo_upload_items i
+                             JOIN photo_upload_jobs j ON j.id=i.job_id
+                             WHERE i.status='Unmatched'
+                             ORDER BY i.id DESC""").fetchall()
+        unassigned = [dict(row) for row in unassigned if (_staging_dir(row['job_id']) / row['staged_name']).is_file()]
+    return render_template('photoshoot.html', session=session, scans=scans, current=current, recent=recent, jobs=jobs, pending=pending, unassigned=unassigned)
 
 
 def _result_data(raw):
@@ -485,6 +492,35 @@ def session_detail(session_id):
         'matched': list(matched.values()),
         'unmatched': list(unmatched.values()),
     })
+
+
+@bp.get('/unassigned-thumbnail/<int:item_id>')
+def unassigned_thumbnail(item_id):
+    init_tables()
+    with db() as conn:
+        item = conn.execute("""SELECT i.* FROM photo_upload_items i
+                              WHERE i.id=? AND i.status='Unmatched'""", (item_id,)).fetchone()
+    if not item:
+        return jsonify({'ok': False, 'error': 'Unassigned photo not found.'}), 404
+    source = _staging_dir(item['job_id']) / item['staged_name']
+    if not source.is_file():
+        return jsonify({'ok': False, 'error': 'Unassigned photo file is missing.'}), 404
+    cache_dir = source.parent / '.thumbnails'
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    thumbnail = cache_dir / f'unassigned-{item_id}.jpg'
+    try:
+        if not thumbnail.exists() or thumbnail.stat().st_mtime < source.stat().st_mtime:
+            with Image.open(source) as image:
+                image = ImageOps.exif_transpose(image)
+                if image.mode != 'RGB':
+                    image = image.convert('RGB')
+                image.thumbnail((160, 160), Image.Resampling.LANCZOS)
+                temporary = thumbnail.with_suffix('.tmp')
+                image.save(temporary, format='JPEG', quality=78, optimize=True, progressive=True)
+                temporary.replace(thumbnail)
+    except (OSError, ValueError):
+        return jsonify({'ok': False, 'error': 'Unassigned photo could not be previewed.'}), 422
+    return send_file(thumbnail, mimetype='image/jpeg', max_age=86400)
 
 
 @bp.get('/pending-thumbnail/<int:asset_id>')
