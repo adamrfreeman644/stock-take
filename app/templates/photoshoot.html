@@ -47,15 +47,17 @@
   </section>
   {% endif %}
 
-  {% if recent %}
   <section class="shoot-sessions">
-    <div class="pending-section-head"><div><h2>Upload Photos</h2><p class="muted">Choose photos from any completed shoot. StockTake uses each photo's capture date and time to put it into the correct shoot and product window automatically.</p></div></div>
+    <div class="pending-section-head"><div><h2>Upload Photos</h2><p class="muted">Choose photos at any time, including while a Photo Shoot is active. Completed-shoot photos are matched and assigned automatically by capture date and time.</p></div></div>
     <form class="batch-upload global-photo-upload" data-global-batch-form>
       <label class="btn primary">Choose Photos<input type="file" accept="image/*,.heic,.heif" multiple required data-global-photo-input></label>
       <div class="muted" data-global-photo-summary>No photos selected</div>
       <button class="btn" type="submit">Upload &amp; Auto Assign</button>
       <div class="upload-progress" data-global-progress><div class="upload-detail" data-global-progress-label>Preparing upload…</div><div class="upload-bar"><span data-global-progress-bar></span></div><div class="upload-detail" data-global-progress-detail></div></div><div class="upload-safe-banner" data-upload-safe-banner role="status" aria-live="assertive"><div class="upload-safe-title">✓ UPLOAD COMPLETE</div><div class="upload-safe-sub">SAFE TO LEAVE THIS PAGE</div><div class="upload-safe-background">Photo assignment is continuing in the background.</div></div>
     </form>
+  </section>
+  {% if recent %}
+  <section class="shoot-sessions">
     <h2>Recent shoots</h2>
     {% for s in recent %}
     {% set job = jobs.get(s.id) if jobs else None %}
