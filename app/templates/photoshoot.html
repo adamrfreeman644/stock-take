@@ -54,6 +54,21 @@
   </section>
   {% endif %}
 
+  {% if unassigned %}
+  <section class="shoot-sessions pending-section">
+    <div class="pending-section-head"><div><h2>Unassigned Photos</h2><p class="muted">These photos are safely held on the server but could not be matched to a product or pending barcode.</p></div></div>
+    <div class="pending-list">
+      {% for photo in unassigned %}
+      <div class="pending-row">
+        <button type="button" class="pending-preview" data-pending-preview="{{ url_for('photoshoot.unassigned_thumbnail', item_id=photo.upload_item_id) }}" aria-label="View unassigned photo {{ photo.original_name }}"><img src="{{ url_for('photoshoot.unassigned_thumbnail', item_id=photo.upload_item_id) }}" alt="Unassigned photo" loading="lazy"></button>
+        <div class="pending-row-main"><strong>{{ photo.original_name }}</strong><span>Unassigned{% if photo.session_id %} · Shoot #{{ photo.session_id }}{% endif %}</span></div>
+        <div class="pending-count">Needs attention</div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
   <section class="shoot-sessions shoot-upload-section">
     <div class="pending-section-head"><div><h2>Upload Photos</h2><p class="muted">Choose photos at any time, including while a Photo Shoot is active. Completed-shoot photos are matched and assigned automatically by capture date and time.</p></div></div>
     <form class="batch-upload global-photo-upload" data-global-batch-form>
