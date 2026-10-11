@@ -103,7 +103,21 @@
   window.addEventListener('load',async()=>{e.value='';try{const s=await post('/photo-shoot/scanner/status');if(s.owned)showScanner();else if(s.available){if(join)join.hidden=false;if(status)status.textContent='No scanner is currently connected to this shoot.'}else{if(join)join.hidden=true;if(status)status.textContent='Scanner in use on another device.'}}catch(_){}});
   document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!backdrop.hidden){post('/photo-shoot/scanner/heartbeat').then(()=>setTimeout(keepReady,80)).catch(()=>{})}});
   e.addEventListener('blur',()=>{if(!backdrop.hidden)setTimeout(keepReady,80)});
-  e.addEventListener('keydown',event=>{if(event.key==='Enter'&&e.value.trim()){event.preventDefault();e.form.requestSubmit()}});
+  const scanForm=e.form;
+  const renderScan=result=>{
+    let current=document.querySelector('.scanner-device-modal .current-product');
+    if(current){
+      current.classList.toggle('pending-current',!!result.pending);
+      const tags=(result.tags||[]).map(t=>'<span class="current-tag'+(t===result.barcode?' scanned':'')+'">'+escapeHtml(t)+'</span>').join('');
+      const details=[['Colour',result.main_colour],['2nd',result.secondary_colour],['Pattern',result.pattern]].filter(x=>x[1]).map(x=>'<span class="current-product-detail"><b>'+x[0]+'</b>'+escapeHtml(x[1])+'</span>').join('');
+      current.innerHTML='<div class="current-label">'+(result.pending?'PENDING PRODUCT':'CURRENT PRODUCT')+'</div><div class="current-code">'+escapeHtml(result.barcode)+'</div><div class="current-name">'+escapeHtml(result.item)+'</div>'+(details?'<div class="current-product-details">'+details+'</div>':'')+'<div class="current-time">Photo window started '+escapeHtml((result.scanned_at||'').slice(11,19))+'</div>'+(tags?'<div class="current-tags"><div class="current-tags-head"><span>Linked tags</span><span class="current-tags-count">'+(result.tags||[]).length+' linked</span></div><div class="current-tags-list">'+tags+'</div></div>':'');
+    }
+  };
+  scanForm.addEventListener('submit',async event=>{
+    event.preventDefault();const code=e.value.trim();if(!code)return;const body=new FormData(scanForm);e.value='';
+    try{const r=await fetch(scanForm.action,{method:'POST',body,headers:{'X-Requested-With':'XMLHttpRequest'},cache:'no-store'});const j=await r.json();if(!r.ok||!j.ok)throw new Error(j.error||'Scan failed');renderScan(j);if(status)status.textContent=j.pending?'Barcode held as pending product.':'Scan accepted.'}catch(err){if(status)status.textContent=err.message}finally{setTimeout(keepReady,30)}
+  });
+  e.addEventListener('keydown',event=>{if(event.key==='Enter'&&e.value.trim()){event.preventDefault();scanForm.requestSubmit()}});
   window.addEventListener('pagehide',()=>{if(backdrop.hidden)return;try{navigator.sendBeacon('/photo-shoot/scanner/release',new URLSearchParams({scanner_token:token}))}catch(_){}});
   const endForm=document.querySelector('[data-end-shoot-form]');if(endForm)endForm.addEventListener('submit',event=>{if(!window.confirm('End this photo shoot?\n\nNo more scan markers can be added after it is ended.')){event.preventDefault();setTimeout(keepReady,80)}else{clearInterval(heartbeat);try{navigator.sendBeacon('/photo-shoot/scanner/release',new URLSearchParams({scanner_token:token}))}catch(_){}}});
 })();
