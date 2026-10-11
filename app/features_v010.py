@@ -205,6 +205,8 @@ def configure(app, server):
             if status in ('Available', 'Sold'):
                 sql += ' AND p.status=?'
                 params.append(status)
+            elif status == 'No photos':
+                sql += ' AND NOT EXISTS(SELECT 1 FROM photos np WHERE np.product_id=p.id)'
             sql += ' ORDER BY p.id DESC'
             products = conn.execute(sql, params).fetchall()
             counts = {r['status']: r['c'] for r in conn.execute("SELECT status,COUNT(*) c FROM products WHERE archived_at IS NULL GROUP BY status").fetchall()}
