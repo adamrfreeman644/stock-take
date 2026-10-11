@@ -15,3 +15,6 @@
 
 /* Compact inventory view selectors */
 .compact-view-controls{display:flex;align-items:center;gap:7px}.view-select-wrap{display:flex;align-items:center;gap:5px;padding:0 8px;border:1px solid #d7dce2;border-radius:12px;background:#fff;font-weight:700;white-space:nowrap}.view-select-wrap span{font-size:13px;color:#64748b}.view-select-wrap select,.compact-tiles select{border:0;background:transparent;font:inherit;font-weight:800;outline:none;min-height:42px}.compact-tiles{padding:0 4px}.compact-tiles select{padding:0 16px 0 3px;min-width:68px}@media(max-width:760px){.toolbar{align-items:center!important}.compact-view-controls{margin-left:auto;gap:5px}.view-select-wrap{padding:0 5px 0 7px}.view-select-wrap select{min-height:40px;padding:0 14px 0 0}.compact-tiles select{min-height:40px;min-width:62px;font-size:13px}.tile-width-select-wrap.compact-tiles span{display:none}}
+
+/* Single inventory view/density menu */
+.combined-view-select{min-width:138px}.combined-view-select select{min-width:78px;padding-right:22px}@media(max-width:760px){.combined-view-select{min-width:132px}.combined-view-select select{min-width:76px;font-size:15px}}
