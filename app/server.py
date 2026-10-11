@@ -199,6 +199,8 @@ def index():
     if status in ('Available', 'Sold'):
         sql += ' AND p.status=?'
         params.append(status)
+    elif status == 'No photos':
+        sql += ' AND NOT EXISTS(SELECT 1 FROM photos np WHERE np.product_id=p.id)'
     sql += ' ORDER BY p.id DESC'
     with db() as conn:
         products = conn.execute(sql, params).fetchall()
