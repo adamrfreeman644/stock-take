@@ -259,8 +259,8 @@ def claim_pending_photos(product_id, barcode):
                     (product_id,),
                 ).fetchone()['n']
                 conn.execute(
-                    'INSERT INTO photos(product_id,filename,sort_order) VALUES(?,?,?)',
-                    (product_id, filename, order),
+                    'INSERT INTO photos(product_id,filename,sort_order,source_barcode) VALUES(?,?,?,?)',
+                    (product_id, filename, order, code),
                 )
             now = datetime.now().isoformat(timespec='seconds')
             conn.execute(
