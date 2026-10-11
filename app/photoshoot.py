@@ -127,6 +127,8 @@ def init_tables():
             conn.execute('ALTER TABLE photo_shoot_sessions ADD COLUMN scanner_token TEXT')
         if 'scanner_claimed_at' not in session_columns:
             conn.execute('ALTER TABLE photo_shoot_sessions ADD COLUMN scanner_claimed_at TEXT')
+        if 'scanner_last_seen' not in session_columns:
+            conn.execute('ALTER TABLE photo_shoot_sessions ADD COLUMN scanner_last_seen TEXT')
         item_columns = {row['name'] for row in conn.execute('PRAGMA table_info(photo_upload_items)').fetchall()}
         if 'content_hash' not in item_columns:
             conn.execute('ALTER TABLE photo_upload_items ADD COLUMN content_hash TEXT')
@@ -611,6 +613,48 @@ def start_session():
     return redirect(url_for('photoshoot.photo_shoot'))
 
 
+SCANNER_LEASE_SECONDS = 45
+
+
+def _scanner_lease_alive(shoot):
+    if not shoot or not shoot['scanner_token']:
+        return False
+    raw = shoot['scanner_last_seen'] or shoot['scanner_claimed_at']
+    if not raw:
+        return False
+    try:
+        return (datetime.now() - datetime.fromisoformat(raw)).total_seconds() < SCANNER_LEASE_SECONDS
+    except (TypeError, ValueError):
+        return False
+
+
+@bp.post('/scanner/status')
+def scanner_status():
+    init_tables()
+    token = request.form.get('scanner_token', '').strip()[:120]
+    with db() as conn:
+        shoot = conn.execute("SELECT * FROM photo_shoot_sessions WHERE status='Active' ORDER BY id DESC LIMIT 1").fetchone()
+        if not shoot:
+            return jsonify({'ok': True, 'active': False, 'owned': False, 'available': False})
+        alive = _scanner_lease_alive(shoot)
+        if shoot['scanner_token'] and not alive:
+            conn.execute('UPDATE photo_shoot_sessions SET scanner_token=NULL,scanner_claimed_at=NULL,scanner_last_seen=NULL WHERE id=?', (shoot['id'],))
+        owned = bool(alive and token and shoot['scanner_token'] == token)
+        return jsonify({'ok': True, 'active': True, 'owned': owned, 'available': not alive, 'session_id': int(shoot['id'])})
+
+
+@bp.post('/scanner/heartbeat')
+def scanner_heartbeat():
+    init_tables()
+    token = request.form.get('scanner_token', '').strip()[:120]
+    with db() as conn:
+        shoot = conn.execute("SELECT * FROM photo_shoot_sessions WHERE status='Active' ORDER BY id DESC LIMIT 1").fetchone()
+        if not shoot or not token or shoot['scanner_token'] != token or not _scanner_lease_alive(shoot):
+            return jsonify({'ok': False, 'error': 'Scanner lease expired.'}), 409
+        conn.execute('UPDATE photo_shoot_sessions SET scanner_last_seen=? WHERE id=?', (datetime.now().isoformat(timespec='seconds'), shoot['id']))
+    return jsonify({'ok': True})
+
+
 @bp.post('/scanner/claim')
 def claim_scanner():
     init_tables()
@@ -621,10 +665,11 @@ def claim_scanner():
         shoot = conn.execute("SELECT * FROM photo_shoot_sessions WHERE status='Active' ORDER BY id DESC LIMIT 1").fetchone()
         if not shoot:
             return jsonify({'ok': False, 'error': 'There is no active Photo Shoot.'}), 409
-        if shoot['scanner_token'] and shoot['scanner_token'] != token:
+        if shoot['scanner_token'] and shoot['scanner_token'] != token and _scanner_lease_alive(shoot):
             return jsonify({'ok': False, 'error': 'This Photo Shoot already has an active scanner.'}), 409
-        conn.execute('UPDATE photo_shoot_sessions SET scanner_token=?,scanner_claimed_at=? WHERE id=?',
-                     (token, datetime.now().isoformat(timespec='seconds'), shoot['id']))
+        now = datetime.now().isoformat(timespec='seconds')
+        conn.execute('UPDATE photo_shoot_sessions SET scanner_token=?,scanner_claimed_at=?,scanner_last_seen=? WHERE id=?',
+                     (token, now, now, shoot['id']))
     return jsonify({'ok': True, 'session_id': int(shoot['id'])})
 
 
@@ -635,7 +680,7 @@ def release_scanner():
     with db() as conn:
         shoot = conn.execute("SELECT * FROM photo_shoot_sessions WHERE status='Active' ORDER BY id DESC LIMIT 1").fetchone()
         if shoot and token and shoot['scanner_token'] == token:
-            conn.execute('UPDATE photo_shoot_sessions SET scanner_token=NULL,scanner_claimed_at=NULL WHERE id=?', (shoot['id'],))
+            conn.execute('UPDATE photo_shoot_sessions SET scanner_token=NULL,scanner_claimed_at=NULL,scanner_last_seen=NULL WHERE id=?', (shoot['id'],))
     return jsonify({'ok': True})
 
 
@@ -651,9 +696,10 @@ def scan_product():
         if not session:
             flash('Start a photo shoot first.', 'error')
             return redirect(url_for('photoshoot.photo_shoot'))
-        if not scanner_token or session['scanner_token'] != scanner_token:
+        if not scanner_token or session['scanner_token'] != scanner_token or not _scanner_lease_alive(session):
             flash('This device is not the active Photo Shoot scanner.', 'error')
             return redirect(url_for('photoshoot.photo_shoot'))
+        conn.execute('UPDATE photo_shoot_sessions SET scanner_last_seen=? WHERE id=?', (datetime.now().isoformat(timespec='seconds'), session['id']))
         product = conn.execute('''SELECT p.* FROM item_barcodes ib JOIN products p ON p.id=ib.product_id
                                   WHERE ib.barcode=? LIMIT 1''', (code,)).fetchone()
         now = datetime.now().isoformat(timespec='seconds')
@@ -674,7 +720,7 @@ def end_session():
     init_tables()
     now = datetime.now().isoformat(timespec='seconds')
     with db() as conn:
-        conn.execute("UPDATE photo_shoot_sessions SET status='Ended', ended_at=?, scanner_token=NULL, scanner_claimed_at=NULL WHERE status='Active'", (now,))
+        conn.execute("UPDATE photo_shoot_sessions SET status='Ended', ended_at=?, scanner_token=NULL, scanner_claimed_at=NULL, scanner_last_seen=NULL WHERE status='Active'", (now,))
     flash('Photo shoot ended. Select the batch and StockTake will stage it safely before assigning in the background.', 'success')
     return redirect(url_for('photoshoot.photo_shoot'))
 
@@ -785,10 +831,20 @@ def auto_stage_file():
     uploaded.stream.seek(0)
     with db() as conn:
         duplicate = conn.execute(
-            "SELECT id,status FROM photo_upload_items WHERE content_hash=? AND status NOT IN ('Discarded','Unmatched') ORDER BY id LIMIT 1",
+            """SELECT i.id,i.status,i.job_id,j.status AS job_status,j.session_id
+               FROM photo_upload_items i JOIN photo_upload_jobs j ON j.id=i.job_id
+               WHERE i.content_hash=? AND i.status NOT IN ('Discarded','Unmatched')
+               ORDER BY i.id LIMIT 1""",
             (content_hash,),
         ).fetchone()
     if duplicate:
+        # If a browser/app interruption left this file staged in an unfinished batch,
+        # adopt that job into the retry batch so auto-finish will queue it instead of
+        # silently stranding the already-uploaded photo.
+        if duplicate['status'] == 'Staged' and duplicate['job_status'] == 'Uploading' and int(duplicate['session_id']) == int(shoot['id']):
+            with db() as conn:
+                conn.execute('UPDATE photo_upload_jobs SET batch_token=? WHERE id=?', (token, duplicate['job_id']))
+            return jsonify({'ok': True, 'duplicate': True, 'recovered': True, 'job_id': int(duplicate['job_id']), 'session_id': int(shoot['id']), 'taken': taken.isoformat(timespec='seconds')})
         return jsonify({'ok': True, 'duplicate': True, 'skipped': True, 'session_id': int(shoot['id']), 'taken': taken.isoformat(timespec='seconds')})
 
     suffix = Path(original).suffix.lower()
