@@ -104,3 +104,13 @@ def test_heic_backend_support_is_installed():
     assert "pillow-heif" in requirements
     assert "register_heif_opener()" in source
     assert "'heic'" in source and "'heif'" in source
+
+
+def test_barcode_scan_is_in_place_and_keeps_scanner_open():
+    template = Path("app/templates/photoshoot.html").read_text()
+    backend = Path("app/photoshoot.py").read_text()
+    assert "scanForm.addEventListener('submit'" in template
+    assert "'X-Requested-With':'XMLHttpRequest'" in template
+    assert "renderScan(j)" in template
+    assert "wants_json = request.headers.get('X-Requested-With') == 'XMLHttpRequest'" in backend
+    assert "'scanned_at': now" in backend
