@@ -5,7 +5,7 @@ import shutil
 import sqlite3
 import uuid
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from flask import Blueprint, jsonify, render_template, request, redirect, url_for, flash, send_file
@@ -700,15 +700,9 @@ def auto_stage_file():
     server_offset = datetime.now().astimezone().utcoffset()
     server_offset_minutes = int(server_offset.total_seconds() // 60) if server_offset else 0
     if taken:
-        taken = taken + __import__('datetime').timedelta(minutes=device_offset + server_offset_minutes)
-    elif modified_ms:
-        try:
-            taken = datetime.fromtimestamp(modified_ms / 1000.0)
-            source = 'file timestamp fallback'
-        except (ValueError, OSError, OverflowError):
-            taken = None
+        taken = taken + timedelta(minutes=device_offset + server_offset_minutes)
     if not taken:
-        return jsonify({'ok': False, 'error': f'{uploaded.filename}: no usable photo date/time'}), 422
+        return jsonify({'ok': False, 'error': f'{uploaded.filename}: no original camera Date Taken metadata; not assigned'}), 422
 
     with db() as conn:
         shoots = conn.execute(
