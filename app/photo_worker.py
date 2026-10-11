@@ -206,12 +206,12 @@ def process_job(account_id, job_id):
         source = 'camera Date Taken'
         if taken:
             taken = taken + timedelta(minutes=device_offset + server_offset_minutes)
-        elif item['modified_ms']:
-            try:
-                taken = datetime.fromtimestamp(float(item['modified_ms']) / 1000.0)
-                source = 'file timestamp fallback'
-            except (ValueError, OSError, OverflowError):
-                taken = None
+        else:
+            # Never assign a Photo Shoot image from the browser/file modified
+            # timestamp. Copies, edits and downloads can change that value and
+            # silently put a photo into the wrong scan window.
+            taken = None
+            source = 'camera Date Taken unavailable'
 
         target = None
         if taken:
@@ -222,7 +222,7 @@ def process_job(account_id, job_id):
                     break
 
         if not taken or not target:
-            reason = 'No readable camera or file timestamp' if not taken else f'Outside scan window ({taken.strftime("%Y-%m-%d %H:%M:%S")})'
+            reason = 'No readable camera Date Taken timestamp' if not taken else f'Outside scan window ({taken.strftime("%Y-%m-%d %H:%M:%S")})'
             with connect(db_path) as conn:
                 conn.execute("UPDATE photo_upload_items SET status='Unmatched',result_json=? WHERE id=?",
                              (result_json(reason=reason, timestamp_source=source), item['id']))
