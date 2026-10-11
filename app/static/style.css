@@ -9,3 +9,6 @@
 .tile-width-btn.active{background:var(--text);border-color:var(--text);color:#fff}
 @media(max-width:760px){.summary{flex-wrap:wrap}.tile-width-control{width:100%;margin-left:0;justify-content:space-between}.tile-width-buttons{flex:1}.tile-width-btn{flex:1;min-width:0}.cards{grid-template-columns:repeat(var(--inventory-columns,2),minmax(0,1fr))}}
 @media(max-width:480px){.cards{grid-template-columns:repeat(var(--inventory-columns,2),minmax(0,1fr))}.card-head{align-items:flex-start;gap:4px}.card-head .status{flex:0 0 auto}}
+
+/* Compact inventory card density selector */
+.tile-width-select-wrap{display:flex;align-items:center;gap:6px;padding:0 8px;border:1px solid #d7dce2;border-radius:12px;background:#fff;font-weight:700;white-space:nowrap}.tile-width-select-wrap select{border:0;background:transparent;font:inherit;font-weight:800;min-height:42px;padding:0 20px 0 2px;outline:none}.view-toggle{align-items:stretch}.view-toggle .tile-width-select-wrap{min-height:44px}@media(max-width:760px){.tile-width-control{display:none!important}.tile-width-select-wrap{padding-left:7px;padding-right:4px;gap:3px}.tile-width-select-wrap span{font-size:13px}.tile-width-select-wrap select{min-height:40px;padding-right:15px}}
