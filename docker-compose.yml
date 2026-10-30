@@ -31,6 +31,8 @@ services:
     image: docker:27-cli
     container_name: inventory-updater
     working_dir: /project
+    environment:
+      INVENTORY_COMPOSE_PROJECT_NAME: "${INVENTORY_COMPOSE_PROJECT_NAME:-raes-bits-and-bobbins-stock}"
     command: ["sh", "-c", "apk add --no-cache git docker-cli-compose >/dev/null 2>&1 && git config --global --add safe.directory /project && sh /project/updater.sh"]
     volumes:
       - ./:/project
