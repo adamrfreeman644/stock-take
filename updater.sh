@@ -43,7 +43,11 @@ if [ -z "$HOST_PROJECT_DIR" ]; then
   exit 1
 fi
 export HOST_PROJECT_DIR
+COMPOSE_PROJECT_NAME="${INVENTORY_COMPOSE_PROJECT_NAME:-raes-bits-and-bobbins-stock}"
+export COMPOSE_PROJECT_NAME
+compose(){ docker compose --project-name "$COMPOSE_PROJECT_NAME" -f "$PROJECT/docker-compose.yml" "$@"; }
 log "Host project directory: $HOST_PROJECT_DIR"
+log "Compose project: $COMPOSE_PROJECT_NAME"
 
 git config --global --add safe.directory "$PROJECT" >/dev/null 2>&1 || true
 log "Dependencies OK: $(git --version); $(docker --version); $(docker compose version)"
@@ -159,7 +163,7 @@ while true; do
       continue
     fi
 
-    if docker compose -f "$PROJECT/docker-compose.yml" config >/dev/null 2>>"$LOG"; then
+    if compose config >/dev/null 2>>"$LOG"; then
       log "Compose configuration validated"
     else
       log "ERROR: docker compose configuration is invalid"
@@ -168,7 +172,7 @@ while true; do
       continue
     fi
 
-    if ! docker compose -f "$PROJECT/docker-compose.yml" build inventory-manager >>"$LOG" 2>&1; then
+    if ! compose build inventory-manager >>"$LOG" 2>&1; then
       log "ERROR: Inventory Manager image build failed"
       echo "failed: build" > "$STATUS"
       sleep 2
@@ -186,7 +190,7 @@ while true; do
       fi
     fi
 
-    if docker compose -f "$PROJECT/docker-compose.yml" up -d --no-deps inventory-manager >>"$LOG" 2>&1; then
+    if compose up -d --no-deps inventory-manager >>"$LOG" 2>&1; then
       log "Inventory Manager replacement container started with persistent host bind paths"
       echo "complete" > "$STATUS"
     else
